@@ -31,11 +31,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bofedge.core.ui.components.EmptyState
+import com.bofedge.feature.instrument.chart.CandleChartMath
+import com.bofedge.feature.instrument.chart.ChartColors
+import com.bofedge.feature.instrument.chart.KiteStyleChart
 import com.bofedge.domain.model.InstrumentDetail
 
 private val TIMEFRAMES = listOf("15m", "1h", "4h", "1D")
 
-private val MODES = com.bofedge.feature.instrument.chart.ChartMode.entries
 
 /** Instrument detail page (Phase 2). Chart canvas + overlays arrive in Phase 3. */
 @Composable
@@ -71,8 +73,10 @@ private fun InstrumentDetailContent(
     onRetryCandles: () -> Unit,
 ) {
     var selectedTimeframe by rememberSaveable { mutableStateOf(candleState.timeframe) }
-    var chartMode by rememberSaveable { mutableIntStateOf(0) }
     var showSma by rememberSaveable { mutableStateOf(false) }
+    var showEma9 by rememberSaveable { mutableStateOf(false) }
+    var showBb by rememberSaveable { mutableStateOf(false) }
+    var showRsi by rememberSaveable { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -155,25 +159,19 @@ private fun InstrumentDetailContent(
         }
         Spacer(Modifier.height(6.dp))
 
-        // --- Chart mode + SMA overlay ---
+        // --- Indicator toggle chips ---
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            MODES.forEachIndexed { index, mode ->
-                FilterChip(
-                    selected = chartMode == index,
-                    onClick = { chartMode = index },
-                    label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) },
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            FilterChip(
-                selected = showSma,
-                onClick = { showSma = !showSma },
-                label = { Text("SMA 20") },
-            )
+            FilterChip(selected = showSma, onClick = { showSma = !showSma },
+                       label = { Text("MA20", color = ChartColors.SMA20) })
+            FilterChip(selected = showEma9, onClick = { showEma9 = !showEma9 },
+                       label = { Text("EMA9", color = ChartColors.EMA9) })
+            FilterChip(selected = showBb, onClick = { showBb = !showBb },
+                       label = { Text("BB", color = ChartColors.BB) })
+            FilterChip(selected = showRsi, onClick = { showRsi = !showRsi },
+                       label = { Text("RSI", color = MaterialTheme.colorScheme.primary) })
         }
         Spacer(Modifier.height(8.dp))
 
@@ -182,7 +180,6 @@ private fun InstrumentDetailContent(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(Modifier.padding(vertical = 10.dp, horizontal = 6.dp)) {
-                val mode = MODES[chartMode.coerceIn(MODES.indices)]
                 when {
                     candleState.loading -> Box(
                         Modifier.fillMaxWidth().height(240.dp),
@@ -208,11 +205,23 @@ private fun InstrumentDetailContent(
                         }
                     }
 
-                    else -> com.bofedge.feature.instrument.chart.PriceChart(
-                        mode = mode,
-                        showSma = showSma,
-                        candles = candleState.candles,
-                    )
+                    else -> {
+                        val cs = candleState.candles
+                        KiteStyleChart(
+                            candles = cs,
+                            showSma20 = showSma,
+                            showEma9 = showEma9,
+                            showSma50 = false, // SMA50 needs more data; enable when 50+ bars
+                            showBb = showBb,
+                            showRsi = showRsi,
+                            sma20Values = CandleChartMath.sma(cs, 20),
+                            ema9Values = CandleChartMath.ema(cs, 9),
+                            sma50Values = CandleChartMath.sma(cs, 50),
+                            bbUpper = if (showBb) CandleChartMath.bollinger(cs).upper else null,
+                            bbLower = if (showBb) CandleChartMath.bollinger(cs).lower else null,
+                            rsiValues = if (showRsi) CandleChartMath.rsi(cs) else null,
+                        )
+                    }
                 }
             }
         }
@@ -281,6 +290,9 @@ private fun FactRow(label: String, value: String) {
         Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
+
+
+
 
 
 

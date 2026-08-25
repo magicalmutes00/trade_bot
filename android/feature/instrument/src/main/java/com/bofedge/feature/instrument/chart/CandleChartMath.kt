@@ -64,17 +64,10 @@ object CandleChartMath {
         return (last - first) / first * 100.0
     }
 
-    // ------------------------------------------------------ line/area modes
+    // ------------------------------------------------------ indicators
 
-    /** (timeMillis, close) pairs for line & area charts. */
-    fun closePoints(candles: List<Candle>): List<Pair<Long, Double>> =
-        candles.map { it.timeMillis to it.close }
-
-    /**
-     * Simple moving average of closes, aligned per index.
-     * Values are `null` until `period` bars have accumulated (warm-up).
-     */
-    fun sma(candles: List<Candle>, period: Int = 20): List<Double?> {
+    /** Simple moving average of closes, aligned per index (null during warm-up). */
+    fun sma(candles: List<Candle>, period: Int): List<Double?> {
         if (period <= 0) return candles.map { null }
         val out = mutableListOf<Double?>()
         var sum = 0.0
@@ -85,4 +78,81 @@ object CandleChartMath {
         }
         return out
     }
+
+    /** Exponential moving average of closes. First value = first close (seed). */
+    fun ema(candles: List<Candle>, period: Int): List<Double?> {
+        if (period <= 0 || candles.isEmpty()) return candles.map { null }
+        val k = 2.0 / (period + 1)
+        val closes = candles.map { it.close }
+        val out = mutableListOf<Double?>()
+        var prev = closes[0]
+        for (i in closes.indices) {
+            if (i < period - 1) { out += null; continue }
+            if (i == period - 1) {
+                prev = closes.subList(0, period).average()
+                out += prev
+                continue
+            }
+            prev = closes[i] * k + prev * (1 - k)
+            out += prev
+        }
+        return out
+    }
+
+    /**
+     * Bollinger Bands — returns aligned lists of upper/mid/lower values.
+     * Mid = SMA(period), Upper/Lower = mid ± stddev × mult.
+     */
+    data class BollingerBands(val upper: List<Double?>, val mid: List<Double?>, val lower: List<Double?>)
+
+    fun bollinger(candles: List<Candle>, period: Int = 20, mult: Double = 2.0): BollingerBands {
+        val closes = candles.map { it.close }
+        val n = closes.size
+        val upper = mutableListOf<Double?>()
+        val mid = mutableListOf<Double?>()
+        val lower = mutableListOf<Double?>()
+
+        for (i in 0 until n) {
+            if (i < period - 1) { upper += null; mid += null; lower += null; continue }
+            val window = closes.subList(i - period + 1, i + 1)
+            val mean = window.average()
+            val std = kotlin.math.sqrt(window.sumOf { (it - mean) * (it - mean) } / period)
+            mid += mean; upper += mean + mult * std; lower += mean - mult * std
+        }
+        return BollingerBands(upper, mid, lower)
+    }
+
+    /** RSI(14) — momentum oscillator [0, 100]. */
+    fun rsi(candles: List<Candle>, period: Int = 14): List<Double?> {
+        if (candles.size <= period) return candles.map { null }
+        val out = mutableListOf<Double?>()
+        out += null // index 0 has no prior close to compute change from
+
+        var avgGain = 0.0; var avgLoss = 0.0
+        for (i in 1..period) {
+            val chg = candles[i].close - candles[i - 1].close
+            if (chg > 0) avgGain += chg else avgLoss -= chg
+        }
+        avgGain /= period; avgLoss /= period
+        out += _rsiValue(avgGain, avgLoss)
+
+        for (i in period + 1 until candles.size) {
+            val chg = candles[i].close - candles[i - 1].close
+            avgGain = (avgGain * (period - 1) + maxOf(chg, 0.0)) / period
+            avgLoss = (avgLoss * (period - 1) + maxOf(-chg, 0.0)) / period
+            out += _rsiValue(avgGain, avgLoss)
+        }
+        return out
+    }
+
+    private fun _rsiValue(gain: Double, loss: Double): Double? {
+        if (loss == 0.0 && gain == 0.0) return 50.0
+        if (loss == 0.0) return 100.0
+        val rs = gain / loss
+        return 100.0 - (100.0 / (1.0 + rs))
+    }
+
+    /** (timeMillis, close) pairs for line & area charts. */
+    fun closePoints(candles: List<Candle>): List<Pair<Long, Double>> =
+        candles.map { it.timeMillis to it.close }
 }
