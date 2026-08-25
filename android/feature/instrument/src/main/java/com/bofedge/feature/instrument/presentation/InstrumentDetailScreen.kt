@@ -58,6 +58,7 @@ fun InstrumentDetailRoute(
             detail = s.detail,
             candleState = candleState,
             onTimeframeChange = viewModel::onTimeframeChange,
+            onRetryCandles = viewModel::loadCandles,
         )
     }
 }
@@ -67,6 +68,7 @@ private fun InstrumentDetailContent(
     detail: InstrumentDetail,
     candleState: CandlesUiState,
     onTimeframeChange: (String) -> Unit,
+    onRetryCandles: () -> Unit,
 ) {
     var selectedTimeframe by rememberSaveable { mutableStateOf(candleState.timeframe) }
     var chartMode by rememberSaveable { mutableIntStateOf(0) }
@@ -191,13 +193,19 @@ private fun InstrumentDetailContent(
                         Modifier.fillMaxWidth().height(240.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            candleState.error ?: "No candles for this timeframe yet.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                candleState.error ?: "No candles for this timeframe yet.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            androidx.compose.material3.TextButton(onClick = onRetryCandles) {
+                                Text("Retry")
+                            }
+                        }
                     }
 
                     else -> com.bofedge.feature.instrument.chart.PriceChart(
@@ -273,6 +281,7 @@ private fun FactRow(label: String, value: String) {
         Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
+
 
 
 

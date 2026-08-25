@@ -61,13 +61,15 @@ object NetworkModule {
     @Singleton
     fun provideOkHttp(firebaseAuth: FirebaseAuth?): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC // request line only â€” never headers/bodies/tokens
+            level = HttpLoggingInterceptor.Level.BASIC // request line only — never headers/bodies/tokens
         }
         return OkHttpClient.Builder()
             .addInterceptor(FirebaseAuthInterceptor(firebaseAuth))
+            .addInterceptor(com.bofedge.data.network.RetryOnceOnIOException())
             .addInterceptor(logging)
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(45, TimeUnit.SECONDS)  // tolerates free-tier cold starts
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
             .build()
     }
 
