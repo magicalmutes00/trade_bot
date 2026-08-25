@@ -63,4 +63,26 @@ object CandleChartMath {
         if (abs(first) < 1e-9) return null
         return (last - first) / first * 100.0
     }
+
+    // ------------------------------------------------------ line/area modes
+
+    /** (timeMillis, close) pairs for line & area charts. */
+    fun closePoints(candles: List<Candle>): List<Pair<Long, Double>> =
+        candles.map { it.timeMillis to it.close }
+
+    /**
+     * Simple moving average of closes, aligned per index.
+     * Values are `null` until `period` bars have accumulated (warm-up).
+     */
+    fun sma(candles: List<Candle>, period: Int = 20): List<Double?> {
+        if (period <= 0) return candles.map { null }
+        val out = mutableListOf<Double?>()
+        var sum = 0.0
+        for (i in candles.indices) {
+            sum += candles[i].close
+            if (i >= period) sum -= candles[i - period].close
+            out += if (i >= period - 1) sum / period else null
+        }
+        return out
+    }
 }

@@ -1,4 +1,4 @@
-package com.bofedge.feature.instrument.presentation
+﻿package com.bofedge.feature.instrument.presentation
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -30,10 +31,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bofedge.core.ui.components.EmptyState
-import com.bofedge.feature.instrument.chart.CandlestickChart
 import com.bofedge.domain.model.InstrumentDetail
 
 private val TIMEFRAMES = listOf("15m", "1h", "4h", "1D")
+
+private val MODES = com.bofedge.feature.instrument.chart.ChartMode.entries
 
 /** Instrument detail page (Phase 2). Chart canvas + overlays arrive in Phase 3. */
 @Composable
@@ -67,6 +69,8 @@ private fun InstrumentDetailContent(
     onTimeframeChange: (String) -> Unit,
 ) {
     var selectedTimeframe by rememberSaveable { mutableStateOf(candleState.timeframe) }
+    var chartMode by rememberSaveable { mutableIntStateOf(0) }
+    var showSma by rememberSaveable { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -147,6 +151,28 @@ private fun InstrumentDetailContent(
                 )
             }
         }
+        Spacer(Modifier.height(6.dp))
+
+        // --- Chart mode + SMA overlay ---
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MODES.forEachIndexed { index, mode ->
+                FilterChip(
+                    selected = chartMode == index,
+                    onClick = { chartMode = index },
+                    label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            FilterChip(
+                selected = showSma,
+                onClick = { showSma = !showSma },
+                label = { Text("SMA 20") },
+            )
+        }
         Spacer(Modifier.height(8.dp))
 
         Card(
@@ -154,6 +180,7 @@ private fun InstrumentDetailContent(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(Modifier.padding(vertical = 10.dp, horizontal = 6.dp)) {
+                val mode = MODES[chartMode.coerceIn(MODES.indices)]
                 when {
                     candleState.loading -> Box(
                         Modifier.fillMaxWidth().height(240.dp),
@@ -173,7 +200,11 @@ private fun InstrumentDetailContent(
                         )
                     }
 
-                    else -> CandlestickChart(candles = candleState.candles)
+                    else -> com.bofedge.feature.instrument.chart.PriceChart(
+                        mode = mode,
+                        showSma = showSma,
+                        candles = candleState.candles,
+                    )
                 }
             }
         }
@@ -187,7 +218,7 @@ private fun InstrumentDetailContent(
                 Spacer(Modifier.height(12.dp))
                 if (!detail.stats.hasAny) {
                     Text(
-                        "No signals yet — the BOF engine goes live in Phase 3.",
+                        "No signals yet â€” the BOF engine goes live in Phase 3.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -205,7 +236,7 @@ private fun InstrumentDetailContent(
                 FactRow("Currency", detail.currency)
                 detail.tickSize?.let { FactRow("Tick size", it.toString()) }
                 detail.lotSize?.let { FactRow("Lot size", it.toString()) }
-                FactRow("Instrument ID", detail.id.take(8) + "…")
+                FactRow("Instrument ID", detail.id.take(8) + "â€¦")
             }
         }
     }
@@ -242,3 +273,7 @@ private fun FactRow(label: String, value: String) {
         Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
+
+
+
+
