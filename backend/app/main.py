@@ -28,14 +28,14 @@ logger = get_logger(__name__)
 async def lifespan(_: FastAPI):
     logger.info("%s starting in %s mode", settings.APP_NAME, settings.ENVIRONMENT)
     live_loop = None
-    if settings.MARKET_DATA_PROVIDER == "demo" and settings.LIVE_DEMO_ENABLED:
-        from app.websocket.live_demo import LiveDemoLoop
+    if settings.MARKET_DATA_PROVIDER != "none" and settings.LIVE_DEMO_ENABLED:
+        from app.websocket.live_loop import LiveLoop
 
-        live_loop = LiveDemoLoop()
+        live_loop = LiveLoop()
         try:
             await live_loop.start()
         except Exception:
-            logger.exception("live demo loop failed to start â€” continuing without it")
+            logger.exception("live loop failed to start")
             live_loop = None
     yield
     if live_loop is not None:

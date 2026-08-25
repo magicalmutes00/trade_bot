@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine import bof_engine
 from app.models import Instrument, Timeframe
-from app.services.providers.demo_provider import DemoMarketDataProvider
+from app.services.providers.factory import build_provider
 from app.services.signal_persistence import persist_signals, refresh_market_data, store_candles
 from app.workers.candle_processing import normalise
 
@@ -59,7 +59,7 @@ async def run_pipeline(
     makes long backfills resumable after interruptions.
     """
     reference = await _load_reference(db)
-    provider = DemoMarketDataProvider(reference)
+    provider = build_provider(reference)
     history_bars = int(timedelta(days=days).total_seconds() // (15 * 60)) + 2
 
     result = await db.execute(select(Instrument).where(Instrument.is_active.is_(True)))

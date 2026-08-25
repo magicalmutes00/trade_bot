@@ -1,8 +1,8 @@
-"""Live demo broadcasting loop.
+﻿"""Live demo broadcasting loop.
 
 Two rhythms:
 - **Ticks** every ``DEMO_TICK_SECONDS``: interpolated live quotes for all
-  instruments (derived from the deterministic demo path — still DEMO data).
+  instruments (derived from the deterministic demo path â€” still DEMO data).
 - **Bar closes**: when the 15-minute grid advances, persist new candles,
   re-run the BOF engine incrementally, broadcast fresh CONFIRMED signals and
   market-status flips.
@@ -19,7 +19,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.models import Instrument
-from app.services.providers.demo_provider import BASE_INTERVAL, DemoMarketDataProvider
+from app.services.providers.factory import build_provider
 from app.websocket import events
 from app.websocket.manager import manager
 from app.workers.candle_processing import normalise
@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 class LiveDemoLoop:
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
-        self._provider: DemoMarketDataProvider | None = None
+        self._provider = None  # set via build_provider()
         self._symbols: list[str] = []
         self._last_index: int | None = None
         self._last_status: str | None = None
@@ -48,10 +48,10 @@ class LiveDemoLoop:
 
         reference = await self._load_reference()
         if not reference:
-            logger.warning("live demo loop found no instruments — run seed-instruments")
+            logger.warning("live demo loop found no instruments â€” run seed-instruments")
             return
 
-        self._provider = DemoMarketDataProvider(reference)
+        self._provider = build_provider(reference)
         self._symbols = [r["symbol"] for r in reference]
         self._last_index = self._provider.current_index()
 
@@ -155,7 +155,7 @@ class LiveDemoLoop:
 
     async def _process_bar(self, previous_index: int, current_index: int) -> None:
         bar_ts = self._provider.index_to_ts(current_index)
-        logger.info("bar close detected (index=%s ts=%s) — incremental pipeline",
+        logger.info("bar close detected (index=%s ts=%s) â€” incremental pipeline",
                     current_index, bar_ts.isoformat())
         try:
             await run_pipeline(days=3)  # small window; upserts are idempotent
@@ -177,7 +177,7 @@ class LiveDemoLoop:
         if cards:
             await manager.broadcast(events.signals_payload(cards[:20]))
 
-        # Phase 6 — preference-driven push fan-out (best-effort, never fatal)
+        # Phase 6 â€” preference-driven push fan-out (best-effort, never fatal)
         if rows:
             try:
                 async with SessionFactory() as db:
@@ -233,3 +233,5 @@ def _signal_card(signal, instrument) -> dict:  # noqa: ANN001
 
 
 __all__ = ["LiveDemoLoop"]
+
+

@@ -26,6 +26,10 @@ def build_provider(reference_instruments: list[dict] | None = None) -> MarketDat
             base_url=current.MARKET_BASE_URL,
             max_retries=current.MARKET_MAX_RETRIES,
         )
+    if current.MARKET_DATA_PROVIDER == "yahoo":
+        from app.services.providers.yahoo_provider import YahooFinanceProvider
+
+        return YahooFinanceProvider(reference_instruments)
     return DemoMarketDataProvider(reference_instruments)
 
 
