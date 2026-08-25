@@ -20,6 +20,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -32,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bofedge.core.ui.components.DashboardSkeleton
 import com.bofedge.core.ui.components.EmptyState
 import com.bofedge.domain.model.AuthUser
+import com.bofedge.feature.auth.presentation.AuthViewModel
 import com.bofedge.domain.model.RealtimeConnection
 
 @Composable
@@ -226,7 +228,12 @@ private fun SignalFeedSection(title: String, signals: List<com.bofedge.domain.mo
 }
 
 @Composable
-fun ProfileTab(mainViewModel: MainViewModel, prefsViewModel: NotificationPrefsViewModel) {
+fun ProfileTab(
+    mainViewModel: MainViewModel,
+    prefsViewModel: NotificationPrefsViewModel,
+    authViewModel: AuthViewModel,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val profile by mainViewModel.profile.collectAsStateWithLifecycle()
     val prefsState by prefsViewModel.state.collectAsStateWithLifecycle()
 
@@ -264,6 +271,19 @@ fun ProfileTab(mainViewModel: MainViewModel, prefsViewModel: NotificationPrefsVi
             }
         }
 
+        // --- Sign out ---
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("Sign out", modifier = Modifier.weight(1f),
+                     style = MaterialTheme.typography.bodyMedium,
+                     color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { authViewModel.logout(context) }) {
+                    Text("Sign out", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
         EmptyState(title = "Settings", description = "Full settings arrive in later phases.")
     }
 }
@@ -271,3 +291,4 @@ fun ProfileTab(mainViewModel: MainViewModel, prefsViewModel: NotificationPrefsVi
 private fun initialsFor(user: AuthUser): String =
     user.displayName?.split(' ')?.take(2)?.mapNotNull { it.firstOrNull()?.uppercase() }?.joinToString("")
         ?: user.email.take(2).uppercase()
+

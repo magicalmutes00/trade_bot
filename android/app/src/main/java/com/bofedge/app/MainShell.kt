@@ -89,11 +89,6 @@ fun MainShell(user: AuthUser) {
         topBar = {
             TopAppBar(
                 title = { Text("BOF Edge", fontWeight = FontWeight.SemiBold) },
-                actions = {
-                    IconButton(onClick = { authViewModel.logout(context) }) {
-                        Icon(Icons.Filled.Logout, contentDescription = "Sign out")
-                    }
-                },
             )
         },
         bottomBar = {
@@ -168,7 +163,11 @@ fun MainShell(user: AuthUser) {
             }
             composable(Routes.PROFILE) {
                 val prefsVm: NotificationPrefsViewModel = hiltViewModel()
-                ProfileTab(mainViewModel = mainViewModel, prefsViewModel = prefsVm)
+                ProfileTab(
+                    mainViewModel = mainViewModel,
+                    prefsViewModel = prefsVm,
+                    authViewModel = authViewModel,
+                )
             }
         }
     }
