@@ -27,6 +27,24 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     logger.info("%s starting in %s mode", settings.APP_NAME, settings.ENVIRONMENT)
+
+    # --- Phase 9 perf: startup pipeline pass so real data is available instantly ---
+    if settings.MARKET_DATA_PROVIDER != "none":
+        try:
+            from app.workers.demo_pipeline import run_pipeline
+
+            async def _startup_backfill():
+                from app.db.session import SessionFactory
+
+                async with SessionFactory() as db:
+                    await run_pipeline(db, days=30)
+                    logger.info("startup backfill complete")
+
+            backfill_task = asyncio.create_task(_startup_backfill())
+        except Exception:
+            logger.exception("startup backfill failed to launch")
+
+    # --- Live broadcasting loop ---
     live_loop = None
     if settings.MARKET_DATA_PROVIDER != "none" and settings.LIVE_DEMO_ENABLED:
         from app.websocket.live_loop import LiveLoop
@@ -40,6 +58,8 @@ async def lifespan(_: FastAPI):
     yield
     if live_loop is not None:
         await live_loop.stop()
+    if 'backfill_task' in dir():
+        backfill_task.cancel()
     await engine.dispose()
     logger.info("%s shut down", settings.APP_NAME)
 
@@ -128,4 +148,5 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
 
