@@ -79,6 +79,7 @@ async def admin_health(admin: AdminUser, db: DbSession) -> ApiResponse[AdminHeal
         pass
 
     from app.websocket.manager import manager
+    from app.core import rate_limit
 
     return ok(AdminHealth(
         status="ok" if latency is not None else "degraded",
@@ -87,6 +88,7 @@ async def admin_health(admin: AdminUser, db: DbSession) -> ApiResponse[AdminHeal
         provider=settings.MARKET_DATA_PROVIDER,
         live_loop_enabled=bool(settings.LIVE_DEMO_ENABLED),
         version="0.1.0",
+        rate_limiter_backend=rate_limit.backend_name(),
     ))
 
 

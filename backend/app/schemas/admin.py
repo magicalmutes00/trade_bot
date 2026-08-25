@@ -98,4 +98,5 @@ class AdminHealth(BaseModel):
     ws_connections: int
     provider: str
     live_loop_enabled: bool
+    rate_limiter_backend: str = "memory"
     version: str

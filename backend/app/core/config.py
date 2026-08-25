@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # --- Rate limiting (in-memory; swap for Redis later without API change) ---
     AUTH_RATE_LIMIT_PER_MINUTE: int = 10
 
+    # --- Redis (optional; rate limiting + future caching) ---
+    REDIS_URL: str | None = None
+
     # --- Live demo loop (Phase 4) ---
     LIVE_DEMO_ENABLED: bool = True
     DEMO_TICK_SECONDS: int = Field(default=10, ge=2, le=3600)
@@ -78,4 +81,5 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
 

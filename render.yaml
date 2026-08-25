@@ -1,24 +1,31 @@
-# Render Blueprint for BOF Edge backend + PostgreSQL.
-# Deploy via Render Dashboard -> New -> Blueprint, or `render blueprint launch`.
-databases:
-  - name: bof-scanner-db
-    databaseName: bof_scanner
-    user: bof
-    plan: free
+﻿# Render Blueprint â€” BOF Edge backend.
+#
+# TWO WAYS TO USE THIS FILE
+# -------------------------
+# A) RECOMMENDED â€” reuse your existing Render PostgreSQL:
+#    Deploy via Dashboard -> New -> Web Service -> connect trade_bot repo,
+#    then copy the settings below (rootDir/build/start/envVars).
+#    The `databases:` block at the bottom is intentionally commented out so a
+#    duplicate database is NOT created.
+#
+# B) Fresh full stack: uncomment `databases:` before applying the blueprint,
+#    then leave DATABASE_URL unset â€” Render injects its own and appends
+#    `?ssl=require` automatically via env var sync.
+#
+# Secrets are never stored here (`sync: false`) â€” Render prompts for them.
 
 services:
   - type: web
-    name: bof-scanner-api
+    name: bof-edge-api
     runtime: python
     plan: free
-    region: singapore
+    region: oregon                    # keep same region as your database
     rootDir: backend
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: >
-      sh -c "alembic upgrade head &&
-             uvicorn app.main:app --host 0.0.0.0 --port $PORT"
-    healthCheckPath: /healthz
+    branch: main
     autoDeploy: true
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /healthz
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
@@ -26,24 +33,59 @@ services:
         value: production
       - key: DEBUG
         value: "false"
+      - key: LOG_LEVEL
+        value: "INFO"
+
+      # Paste the EXTERNAL connection string of your existing database and
+      # append `?ssl=require`, e.g.
+      # postgresql://user:pass@dpg-xxxx-a.oregon-postgres.render.com/bof_scanner?ssl=require
       - key: DATABASE_URL
-        fromDatabase:
-          name: bof-scanner-db
-          property: connectionString
-      # --- Set these in the Render dashboard (do NOT commit real values) ---
+        sync: false
+
       - key: JWT_SECRET
         generateValue: true
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "30"
       - key: REFRESH_TOKEN_EXPIRE_DAYS
         value: "14"
+      - key: RESET_TOKEN_EXPIRE_MINUTES
+        value: "30"
+
+      # Comma-separated browser origins allowed by CORS (admin panel, etc.)
       - key: CORS_ORIGINS
-        value: "*"
+        sync: false
+
+      # --- Redis (your Render Key Value instance, INTERNAL url) ---
+      - key: REDIS_URL
+        sync: false
+
+      # --- Live demo loop ---
+      - key: LIVE_DEMO_ENABLED
+        value: "true"
+      - key: DEMO_TICK_SECONDS
+        value: "10"
+
+      # --- Market data provider (demo until you buy a feed) ---
+      - key: MARKET_DATA_PROVIDER
+        value: "demo"
+      - key: MARKET_DATA_API_KEY
+        sync: false
+      - key: MARKET_BASE_URL
+        sync: false
+
+      # --- Firebase Cloud Messaging (optional until Phase-6 pushes wanted) ---
       - key: FIREBASE_PROJECT_ID
         sync: false
       - key: FIREBASE_CLIENT_EMAIL
         sync: false
       - key: FIREBASE_PRIVATE_KEY
         sync: false
-      - key: MARKET_DATA_API_KEY
-        sync: false
+
+# Uncomment ONLY for path B (fresh full-stack blueprint):
+# databases:
+#   - name: bof-scanner-db
+#     databaseName: bof_scanner
+#     user: bof
+#     plan: free
+#     region: oregon
+
