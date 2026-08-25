@@ -16,16 +16,20 @@ android {
     }
 
     buildTypes {
-        // Emulator -> host machine loopback (10.0.2.2). Physical devices on
-        // LAN can be pointed here manually during development.
+        // API origin is configurable from gradle.properties so debug/release
+        // can independently target local dev or the production backend.
         debug {
-            buildConfigField("String", "BOF_BASE_URL", "\"http://10.0.2.2:8000/api/v1/\"")
+            buildConfigField(
+                "String",
+                "BOF_BASE_URL",
+                "\"${project.findProperty("BOF_API_BASE_DEBUG") ?: "http://10.0.2.2:8000/api/v1/"}\""
+            )
         }
         release {
             buildConfigField(
                 "String",
                 "BOF_BASE_URL",
-                "\"https://bof-edge-backend.onrender.com/api/v1/\""
+                "\"${project.findProperty("BOF_API_BASE_RELEASE") ?: "https://bof-edge-api.onrender.com/api/v1/"}\""
             )
         }
     }
