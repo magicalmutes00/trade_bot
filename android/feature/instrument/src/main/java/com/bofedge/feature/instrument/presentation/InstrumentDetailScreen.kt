@@ -211,12 +211,10 @@ private fun InstrumentDetailContent(
                             candles = cs,
                             showSma20 = showSma,
                             showEma9 = showEma9,
-                            showSma50 = false, // SMA50 needs more data; enable when 50+ bars
                             showBb = showBb,
                             showRsi = showRsi,
                             sma20Values = CandleChartMath.sma(cs, 20),
                             ema9Values = CandleChartMath.ema(cs, 9),
-                            sma50Values = CandleChartMath.sma(cs, 50),
                             bbUpper = if (showBb) CandleChartMath.bollinger(cs).upper else null,
                             bbLower = if (showBb) CandleChartMath.bollinger(cs).lower else null,
                             rsiValues = if (showRsi) CandleChartMath.rsi(cs) else null,
