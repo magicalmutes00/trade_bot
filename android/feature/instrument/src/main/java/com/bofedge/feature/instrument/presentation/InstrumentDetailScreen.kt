@@ -32,7 +32,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bofedge.core.ui.components.EmptyState
 import com.bofedge.feature.instrument.chart.CandleChartMath
-import com.bofedge.feature.instrument.chart.ChartColors
 import com.bofedge.feature.instrument.chart.KiteStyleChart
 import com.bofedge.domain.model.InstrumentDetail
 
@@ -165,11 +164,11 @@ private fun InstrumentDetailContent(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             FilterChip(selected = showSma, onClick = { showSma = !showSma },
-                       label = { Text("MA20", color = ChartColors.SMA20) })
+                       label = { Text("MA20", color = androidx.compose.ui.graphics.Color(0xFFFF9800)) })
             FilterChip(selected = showEma9, onClick = { showEma9 = !showEma9 },
-                       label = { Text("EMA9", color = ChartColors.EMA9) })
+                       label = { Text("EMA9", color = androidx.compose.ui.graphics.Color(0xFFE040FB)) })
             FilterChip(selected = showBb, onClick = { showBb = !showBb },
-                       label = { Text("BB", color = ChartColors.BB) })
+                       label = { Text("BB", color = androidx.compose.ui.graphics.Color(0xFF4E9CFF)) })
             FilterChip(selected = showRsi, onClick = { showRsi = !showRsi },
                        label = { Text("RSI", color = MaterialTheme.colorScheme.primary) })
         }
@@ -288,6 +287,11 @@ private fun FactRow(label: String, value: String) {
         Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
+
+
+
+
+
 
 
 
