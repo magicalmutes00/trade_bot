@@ -24,6 +24,9 @@ async function bearer(): Promise<string | null> {
   return getToken()
 }
 
+/** Absolute API origin — empty string keeps calls same-origin (Netlify proxies /api). */
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await bearer()
   const headers: Record<string, string> = {
@@ -31,7 +34,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...(init.body ? { 'Content-Type': 'application/json' } : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
-  const res = await fetch(path, { ...init, headers })
+    const res = await fetch(`${API_BASE}${path}`, { ...init, headers })
 
   const body = await res.json().catch(() => null)
   if (!res.ok || body?.success === false) {
@@ -49,7 +52,7 @@ export interface LoginResult {
 }
 
 export async function login(email: string, password: string): Promise<LoginResult> {
-  const res = await fetch('/api/v1/auth/login', {
+  const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -66,7 +69,7 @@ export async function login(email: string, password: string): Promise<LoginResul
 
 export async function fetchProfile(tokenOverride?: string): Promise<{ email: string; role: string }> {
   const token = tokenOverride ?? (await currentIdToken()) ?? getToken()
-  const res = await fetch('/api/v1/profile', {
+  const res = await fetch(`${API_BASE}/api/v1/profile`, {
     headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   })
   const body = await res.json()
@@ -76,7 +79,7 @@ export async function fetchProfile(tokenOverride?: string): Promise<{ email: str
 
 /** Exchanges a Firebase ID token for the synced application user. */
 export async function syncFirebaseUser(idToken: string): Promise<void> {
-  const res = await fetch('/api/v1/auth/firebase', {
+  const res = await fetch(`${API_BASE}/api/v1/auth/firebase`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id_token: idToken }),
@@ -163,4 +166,5 @@ export const api = {
     return request<Paginated<EventRow>>(`/api/v1/admin/events?${qs}`)
   },
 }
+
 

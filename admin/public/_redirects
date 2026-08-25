@@ -1,0 +1,3 @@
+# Netlify proxy: forward every API call to the BOF Edge backend.
+# Same-origin from the browser's perspective → no CORS needed.
+/api/*    https://bof-edge-api.onrender.com/api/:splat    200
