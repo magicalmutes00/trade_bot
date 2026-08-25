@@ -1,0 +1,40 @@
+# ===== Python / Backend =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment / secrets — NEVER commit real values
+.env
+.env.local
+.env.*.local
+*.pem
+*-firebase-adminsdk*.json
+google-services.json
+
+# ===== Android =====
+android/.gradle/
+android/build/
+android/*/build/
+android/**/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/captures/
+.DS_Store
+
+# ===== Admin (Node) =====
+admin/node_modules/
+admin/dist/
+admin/.vite/
+
+# ===== General =====
+.idea/
+.vscode/
+*.log

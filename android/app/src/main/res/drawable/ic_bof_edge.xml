@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original BOF Edge launcher glyph: abstract rising candles. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#4E9CFF"
+        android:pathData="M10,20h6v16h-6z" />
+    <path
+        android:fillColor="#4E9CFF"
+        android:pathData="M12,12h2v10h-2z" />
+    <path
+        android:fillColor="#16C784"
+        android:pathData="M21,14h6v22h-6z" />
+    <path
+        android:fillColor="#16C784"
+        android:pathData="M23,6h2v10h-2z" />
+    <path
+        android:fillColor="#EA3943"
+        android:pathData="M32,24h6v12h-6z" />
+    <path
+        android:fillColor="#EA3943"
+        android:pathData="M34,18h2v8h-2z" />
+</vector>
