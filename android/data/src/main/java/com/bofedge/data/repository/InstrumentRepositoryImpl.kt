@@ -4,6 +4,7 @@ import com.bofedge.data.remote.BofApi
 import com.bofedge.data.remote.dto.InstrumentDetailDto
 import com.bofedge.data.remote.dto.InstrumentDto
 import com.bofedge.domain.model.BofSummary
+import com.bofedge.domain.model.Candle
 import com.bofedge.domain.model.DashboardSnapshot
 import com.bofedge.domain.model.HeatmapCell
 import com.bofedge.domain.model.HeatmapGroup
@@ -108,6 +109,26 @@ class InstrumentRepositoryImpl @Inject constructor(
             avgConfidence = s.avgConfidence,
             confirmationRate = s.confirmationRate,
         )
+    }
+
+    override suspend fun candles(id: String, timeframe: String, limit: Int): ApiResult<List<Candle>> = guarded {
+        val page = requireData(api.candles(id, timeframe, limit))
+        // Backend returns newest-first; charts draw oldest→newest (left→right).
+        page.items
+            .map { dto ->
+                val millis = runCatching {
+                    java.time.OffsetDateTime.parse(dto.ts).toInstant().toEpochMilli()
+                }.getOrDefault(0L)
+                Candle(
+                    timeMillis = millis,
+                    open = dto.open.toDoubleOrNull() ?: 0.0,
+                    high = dto.high.toDoubleOrNull() ?: 0.0,
+                    low = dto.low.toDoubleOrNull() ?: 0.0,
+                    close = dto.close.toDoubleOrNull() ?: 0.0,
+                    volume = dto.volume ?: 0L,
+                )
+            }
+            .sortedBy { it.timeMillis }
     }
 
     // ------------------------------------------------------------------ utils

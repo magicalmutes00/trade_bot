@@ -1,5 +1,6 @@
 package com.bofedge.domain.repository
 
+import com.bofedge.domain.model.Candle
 import com.bofedge.domain.model.DashboardSnapshot
 import com.bofedge.domain.model.HeatmapGroup
 import com.bofedge.domain.model.Instrument
@@ -38,4 +39,7 @@ interface InstrumentRepository {
 
     /** Phase 5 — detailed signal statistics for one instrument. */
     suspend fun signalStats(id: String): ApiResult<SignalStatsDetailed>
+
+    /** Phase 3 endpoint, consumed from Phase 5 UI — OHLCV bars newest-last. */
+    suspend fun candles(id: String, timeframe: String, limit: Int = 200): ApiResult<List<Candle>>
 }

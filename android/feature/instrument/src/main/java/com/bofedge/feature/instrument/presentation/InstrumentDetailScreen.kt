@@ -30,9 +30,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bofedge.core.ui.components.EmptyState
+import com.bofedge.feature.instrument.chart.CandlestickChart
 import com.bofedge.domain.model.InstrumentDetail
 
-private val TIMEFRAMES = listOf("1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W")
+private val TIMEFRAMES = listOf("15m", "1h", "4h", "1D")
 
 /** Instrument detail page (Phase 2). Chart canvas + overlays arrive in Phase 3. */
 @Composable
@@ -40,6 +41,7 @@ fun InstrumentDetailRoute(
     viewModel: InstrumentDetailViewModel,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val candleState by viewModel.candles.collectAsStateWithLifecycle()
     when (val s = state) {
         InstrumentDetailUiState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
             CircularProgressIndicator()
@@ -50,13 +52,21 @@ fun InstrumentDetailRoute(
             actionLabel = "Retry",
             onAction = viewModel::load,
         )
-        is InstrumentDetailUiState.Ready -> InstrumentDetailContent(s.detail)
+        is InstrumentDetailUiState.Ready -> InstrumentDetailContent(
+            detail = s.detail,
+            candleState = candleState,
+            onTimeframeChange = viewModel::onTimeframeChange,
+        )
     }
 }
 
 @Composable
-private fun InstrumentDetailContent(detail: InstrumentDetail) {
-    var selectedTimeframe by rememberSaveable { mutableStateOf("15m") }
+private fun InstrumentDetailContent(
+    detail: InstrumentDetail,
+    candleState: CandlesUiState,
+    onTimeframeChange: (String) -> Unit,
+) {
+    var selectedTimeframe by rememberSaveable { mutableStateOf(candleState.timeframe) }
 
     Column(
         Modifier
@@ -124,17 +134,47 @@ private fun InstrumentDetailContent(detail: InstrumentDetail) {
                 )
             }
         }
+        // --- Timeframe selector (drives candle loads) ---
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            TIMEFRAMES.forEach { tf ->
+                FilterChip(
+                    selected = selectedTimeframe == tf,
+                    onClick = {
+                        selectedTimeframe = tf
+                        onTimeframeChange(tf)
+                    },
+                    label = { Text(tf) },
+                )
+            }
+        }
         Spacer(Modifier.height(8.dp))
+
         Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    "Candlestick chart arrives in Phase 3",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+            Column(Modifier.padding(vertical = 10.dp, horizontal = 6.dp)) {
+                when {
+                    candleState.loading -> Box(
+                        Modifier.fillMaxWidth().height(240.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator() }
+
+                    candleState.candles.isEmpty() -> Box(
+                        Modifier.fillMaxWidth().height(240.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            candleState.error ?: "No candles for this timeframe yet.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
+
+                    else -> CandlestickChart(candles = candleState.candles)
+                }
             }
         }
 

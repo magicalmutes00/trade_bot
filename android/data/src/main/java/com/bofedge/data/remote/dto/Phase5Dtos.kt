@@ -87,3 +87,21 @@ data class UpdateWatchlistItemRequestDto(
     @SerialName("alert_enabled") val alertEnabled: Boolean? = null,
     @SerialName("position") val position: Int? = null,
 )
+
+@Serializable
+data class CandleDto(
+    @SerialName("timeframe") val timeframe: String = "15m",
+    @SerialName("ts") val ts: String,
+    @SerialName("open") val open: String,
+    @SerialName("high") val high: String,
+    @SerialName("low") val low: String,
+    @SerialName("close") val close: String,
+    @SerialName("volume") val volume: Long? = null,
+)
+
+@Serializable
+data class PaginatedCandlesDto(
+    @SerialName("items") val items: List<CandleDto> = emptyList(),
+    @SerialName("timeframe") val timeframe: String = "15m",
+    @SerialName("has_more") val hasMore: Boolean = false,
+)

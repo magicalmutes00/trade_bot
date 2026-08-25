@@ -56,6 +56,13 @@ interface BofApi {
     @GET("instruments/{id}/signal-stats")
     suspend fun signalStats(@Path("id") id: String): ApiResponseDto<com.bofedge.data.remote.dto.SignalStatsDetailedDto>
 
+    @GET("instruments/{id}/candles")
+    suspend fun candles(
+        @Path("id") id: String,
+        @Query("timeframe") timeframe: String = "15m",
+        @Query("limit") limit: Int = 200,
+    ): ApiResponseDto<com.bofedge.data.remote.dto.PaginatedCandlesDto>
+
     @GET("watchlists")
     suspend fun watchlists(): ApiResponseDto<List<com.bofedge.data.remote.dto.WatchlistDto>>
 
