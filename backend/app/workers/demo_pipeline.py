@@ -1,4 +1,4 @@
-"""Demo pipeline: provider → validation → candles → quotes → BOF engine → persistence.
+﻿"""Demo pipeline: provider â†’ validation â†’ candles â†’ quotes â†’ BOF engine â†’ persistence.
 
 Runs offline via CLI (`backfill-demo`); Phase 4 wires the same functions into
 a live loop that also broadcasts over WebSocket. Safe to re-run any time:
@@ -55,7 +55,7 @@ async def run_pipeline(
     """Ingest + analyse every active instrument (or a filtered subset).
 
     ``progress(symbol, done, totals)`` fires after each instrument.
-    ``skip_existing`` drops instruments that already hold a full M15 window —
+    ``skip_existing`` drops instruments that already hold a full M15 window â€”
     makes long backfills resumable after interruptions.
     """
     reference = await _load_reference(db)
@@ -120,30 +120,25 @@ async def run_pipeline(
 
 
 async def _refresh_quote(
-    db: AsyncSession, provider: DemoMarketDataProvider, inst: Instrument
+    db: AsyncSession, provider, inst: Instrument
 ) -> None:
-    """Latest-quote row from recent base bars (feeds dashboard + heatmap)."""
-    bars = normalise(await provider.get_candles(inst.symbol, "15m", 2))
-    if not bars:
+    """Latest-quote row from recent bars (feeds dashboard + heatmap)."""
+    quote = await provider.get_quote(inst.symbol)
+    if quote is None:
         return
-    last = bars[-1]
-    prev_close = bars[-2].close if len(bars) > 1 else None
-
-    day_start = last.ts.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_count = provider.current_index() - provider.ts_to_index(day_start) + 1
-    day_bars = normalise(await provider.get_candles(inst.symbol, "15m", max(day_count, 1)))
 
     await refresh_market_data(
         db,
         instrument_id=inst.id,
-        last_close=last.close,
-        previous_close=prev_close,
-        day_open=day_bars[0].open if day_bars else None,
-        day_high=max((b.high for b in day_bars), default=None),
-        day_low=min((b.low for b in day_bars), default=None),
-        volume=sum(int(b.volume or 0) for b in day_bars) or None,
+        last_close=quote.get("last_price") or 0,
+        previous_close=quote.get("previous_close"),
+        day_open=quote.get("day_open"),
+        day_high=quote.get("day_high"),
+        day_low=quote.get("day_low"),
+        volume=int(quote.get("volume") or 0) or None,
         updated_at=datetime.now(timezone.utc),
     )
 
 
 __all__ = ["run_pipeline", "ENGINE_TIMEFRAMES", "STORAGE_TIMEFRAMES"]
+
