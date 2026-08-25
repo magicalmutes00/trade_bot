@@ -25,9 +25,26 @@ class Base(DeclarativeBase):
     }
 
 
+def _normalise_driver(url: str) -> str:
+    """Force the asyncpg driver for Postgres URLs regardless of pasted form.
+
+    Render/Heroku-style URLs arrive as ``postgresql://…``; SQLAlchemy would
+    then default to the (uninstalled) psycopg2 dialect. Also accepts
+    ``postgres://``. Other schemes pass through untouched.
+    """
+    if url.startswith("postgresql+asyncpg://"):
+        return url
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return url
+
+
 def _make_engine(url: str | None = None) -> AsyncEngine:
+    final_url = _normalise_driver(url or settings.DATABASE_URL)
     kwargs: dict = {"pool_pre_ping": True, "echo": False}
-    if not (url or settings.DATABASE_URL).startswith("sqlite"):
+    if not final_url.startswith("sqlite"):
         kwargs.update(
             pool_size=settings.DB_POOL_SIZE,
             max_overflow=settings.DB_MAX_OVERFLOW,
@@ -36,7 +53,7 @@ def _make_engine(url: str | None = None) -> AsyncEngine:
         from sqlalchemy.pool import StaticPool
 
         kwargs.update(poolclass=StaticPool, connect_args={"check_same_thread": False})
-    return create_async_engine(url or settings.DATABASE_URL, **kwargs)
+    return create_async_engine(final_url, **kwargs)
 
 
 engine: AsyncEngine = _make_engine()

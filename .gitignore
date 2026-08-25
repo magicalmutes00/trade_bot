@@ -38,3 +38,6 @@ admin/.vite/
 .idea/
 .vscode/
 *.log
+
+# Render env file (contains real secrets)
+render.env
