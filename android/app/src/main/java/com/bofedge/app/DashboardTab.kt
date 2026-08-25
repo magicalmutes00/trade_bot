@@ -13,11 +13,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bofedge.core.ui.components.DashboardSkeleton
 import com.bofedge.core.ui.components.EmptyState
@@ -237,58 +241,176 @@ fun ProfileTab(
     val profile by mainViewModel.profile.collectAsStateWithLifecycle()
     val prefsState by prefsViewModel.state.collectAsStateWithLifecycle()
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-           verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        when (val p = profile) {
-            ProfileUiState.Loading -> Card(Modifier.fillMaxWidth()) {
-                Box(Modifier.fillMaxWidth().height(72.dp), contentAlignment = Alignment.Center) {
-                    Text("Loading…")
-                }
-            }
-            is ProfileUiState.Error -> Card(Modifier.fillMaxWidth()) {
-                Text(p.message, color = MaterialTheme.colorScheme.error,
-                     modifier = Modifier.padding(14.dp))
-            }
-            is ProfileUiState.Ready -> Card(Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(44.dp).clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
-                        contentAlignment = Alignment.Center) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        // ── Header ────────────────────────────────────────────────────────
+        Column(
+            Modifier.fillMaxWidth().padding(top = 32.dp, bottom = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                Modifier.size(72.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                when (val p = profile) {
+                    is ProfileUiState.Ready ->
                         Text(initialsFor(p.user), color = MaterialTheme.colorScheme.primary,
-                             fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.size(12.dp))
-                    Column {
-                        Text(p.user.displayName ?: p.user.email.substringBefore('@'),
-                             style = MaterialTheme.typography.titleSmall)
-                        Text(p.user.email, style = MaterialTheme.typography.labelMedium,
-                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Signed in with ${p.user.authProvider.lowercase()}",
-                             style = MaterialTheme.typography.labelSmall,
-                             color = MaterialTheme.colorScheme.primary)
+                             fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                    else -> Text("…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            when (val p = profile) {
+                is ProfileUiState.Ready -> {
+                    Text(p.user.displayName ?: p.user.email.substringBefore('@'),
+                         style = MaterialTheme.typography.titleLarge,
+                         fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(2.dp))
+                    Text(p.user.email, style = MaterialTheme.typography.bodyMedium,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(6.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text(
+                            "Google Sign-In",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
                     }
                 }
+                else -> {}
             }
         }
 
-        // --- Sign out ---
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Text("Sign out", modifier = Modifier.weight(1f),
-                     style = MaterialTheme.typography.bodyMedium,
-                     color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { authViewModel.logout(context) }) {
-                    Text("Sign out", color = MaterialTheme.colorScheme.error)
+        // ── Notifications section ─────────────────────────────────────────
+        SectionHeader("Notifications")
+        val p = prefsState.prefs
+        if (p != null) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.padding(horizontal = 16.dp),
+            ) {
+                Column {
+                    SettingRow("Push notifications", p.pushEnabled, prefsViewModel::setPushEnabled)
+                    HorizontalDivider()
+                    SettingRow("Bullish signals", p.bullishAlerts, prefsViewModel::setBullish)
+                    HorizontalDivider()
+                    SettingRow("Bearish signals", p.bearishAlerts, prefsViewModel::setBearish)
+                    HorizontalDivider()
+                    SettingRow("Strong only", p.strongOnly, prefsViewModel::setStrongOnly)
+                    HorizontalDivider()
+                    SettingRow("Watchlist only", p.watchlistOnly, prefsViewModel::setWatchlistOnly)
+                    HorizontalDivider()
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("Min strength", style = MaterialTheme.typography.bodyMedium)
+                        FilterChip(selected = false, onClick = prefsViewModel::cycleMinStrength,
+                                   label = { Text(p.minStrength.lowercase().replace('_', ' ')) })
+                    }
                 }
+            }
+        } else if (prefsState.error != null) {
+            Text(prefsState.error!!, color = MaterialTheme.colorScheme.error,
+                 modifier = Modifier.padding(horizontal = 16.dp),
+                 style = MaterialTheme.typography.bodyMedium)
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        // ── About section ────────────────────────────────────────────────
+        SectionHeader("About")
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+             modifier = Modifier.padding(horizontal = 16.dp)) {
+            Column {
+                AboutRow("Version", "0.1.0")
+                HorizontalDivider()
+                AboutRow("Provider", "Demo data")
+                HorizontalDivider()
+                AboutRow("Backend", "Render")
             }
         }
 
-        EmptyState(title = "Settings", description = "Full settings arrive in later phases.")
+        Spacer(Modifier.height(24.dp))
+
+        // ── Sign out ──────────────────────────────────────────────────────
+        Button(
+            onClick = { authViewModel.logout(context) },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
+                contentColor = MaterialTheme.colorScheme.error,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .height(48.dp),
+        ) {
+            Text("Sign out", fontWeight = FontWeight.Medium)
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // ── Footer ────────────────────────────────────────────────────────
+        Text(
+            "BOF Edge v0.1.0 · Demo data",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 24.dp),
+        )
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        title.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        letterSpacing = 1.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun HorizontalDivider() {
+    Box(Modifier.fillMaxWidth().height(1.dp)
+         .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)))
+}
+
+@Composable
+private fun SettingRow(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        androidx.compose.material3.Switch(checked = checked, onCheckedChange = onToggle)
+    }
+}
+
+@Composable
+private fun AboutRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodyMedium,
+             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
     }
 }
 
 private fun initialsFor(user: AuthUser): String =
     user.displayName?.split(' ')?.take(2)?.mapNotNull { it.firstOrNull()?.uppercase() }?.joinToString("")
         ?: user.email.take(2).uppercase()
+
+
 
