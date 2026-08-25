@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     FIREBASE_PRIVATE_KEY: str | None = None
 
     # --- Market data (Phase 3/8) ---
-    MARKET_DATA_PROVIDER: Literal["demo", "real", "yahoo"] = "yahoo"
+    MARKET_DATA_PROVIDER: Literal["demo", "real", "yahoo", "twelve_data"] = "yahoo"
     MARKET_DATA_API_KEY: str | None = None
     MARKET_BASE_URL: str = "https://api.example-ohlcv.com/v1"
     MARKET_MAX_RETRIES: int = 3

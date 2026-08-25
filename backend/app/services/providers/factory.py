@@ -30,6 +30,18 @@ def build_provider(reference_instruments: list[dict] | None = None) -> MarketDat
         from app.services.providers.yahoo_provider import YahooFinanceProvider
 
         return YahooFinanceProvider(reference_instruments)
+    if current.MARKET_DATA_PROVIDER == "twelve_data":
+        from app.services.providers.twelve_provider import (
+            ProviderNotConfiguredError as TDNotConfigured,
+            TwelveDataProvider,
+        )
+
+        if not current.MARKET_DATA_API_KEY:
+            raise TDNotConfigured(
+                "MARKET_DATA_API_KEY is required for Twelve Data. "
+                "Get a free key at https://twelvedata.com"
+            )
+        return TwelveDataProvider(api_key=current.MARKET_DATA_API_KEY)
     return DemoMarketDataProvider(reference_instruments)
 
 
