@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.engine import bof_engine
+from app.engine.strategies import run_strategies
 from app.models import Instrument, Timeframe
 from app.services.providers.factory import build_provider
 from app.services.signal_persistence import persist_signals, refresh_market_data, store_candles
@@ -99,15 +100,27 @@ async def run_pipeline(
                 db, instrument_id=inst.id, timeframe=tf, candles=series
             )
 
-        # BOF engine on the two primary intraday timeframes
+        # BOF engine + multi-strategy engine on the two primary intraday timeframes
         for tf in ENGINE_TIMEFRAMES:
             series = normalise(_aggregate(raw, tf.value))
             if len(series) < MIN_BARS_FOR_ENGINE:
                 continue
+
+            # BOF signals
             signals = bof_engine.run(instrument_id=inst.id, timeframe=tf.value, candles=series)
             stats = await persist_signals(db, signals)
             for k in ("signals_created", "signals_updated", "events_added"):
                 totals[k] += stats[k]
+
+            # Multi-strategy trade ideas (RSI / crossover / Bollinger)
+            from app.engine.models import EngineCandle as _EC
+            ec_candles = [
+                _EC(ts=c.ts, open=c.open, high=c.high,
+                    low=c.low, close=c.close, volume=float(c.volume or 0))
+                for c in series
+            ]
+            trades = run_strategies(str(inst.id), tf.value, ec_candles)
+            totals["trade_ideas"] = totals.get("trade_ideas", 0) + len(trades)
 
         await _refresh_quote(db, provider, inst)
         await db.commit()

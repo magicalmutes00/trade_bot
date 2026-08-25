@@ -36,12 +36,15 @@ def build_provider(reference_instruments: list[dict] | None = None) -> MarketDat
             TwelveDataProvider,
         )
 
-        if not current.MARKET_DATA_API_KEY:
-            raise TDNotConfigured(
-                "MARKET_DATA_API_KEY is required for Twelve Data. "
-                "Get a free key at https://twelvedata.com"
-            )
-        return TwelveDataProvider(api_key=current.MARKET_DATA_API_KEY)
+        if current.MARKET_DATA_API_KEY:
+            return TwelveDataProvider(api_key=current.MARKET_DATA_API_KEY)
+        # Graceful fallback — warn instead of crash
+        import logging
+        logging.getLogger(__name__).warning(
+            "MARKET_DATA_PROVIDER=twelve_data but MARKET_DATA_API_KEY not set — "
+            "falling back to demo provider"
+        )
+    return DemoMarketDataProvider(reference_instruments)
     return DemoMarketDataProvider(reference_instruments)
 
 
