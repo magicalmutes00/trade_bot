@@ -41,3 +41,4 @@ admin/.vite/
 
 # Render env file (contains real secrets)
 render.env
+admin/tsconfig.tsbuildinfo

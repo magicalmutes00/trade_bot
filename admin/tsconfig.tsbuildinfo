@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/vite-env.d.ts","./src/lib/firebase.ts","./src/pages/dashboard.tsx","./src/pages/health.tsx","./src/pages/instruments.tsx","./src/pages/login.tsx","./src/pages/logs.tsx","./src/pages/marketdata.tsx","./src/pages/sessions.tsx","./src/pages/signals.tsx","./src/pages/users.tsx"],"version":"5.6.3"}
