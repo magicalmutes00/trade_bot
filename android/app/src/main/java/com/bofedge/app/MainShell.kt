@@ -122,6 +122,22 @@ fun MainShell(user: AuthUser) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
+            enterTransition = {
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
+                    androidx.compose.animation.slideInHorizontally(
+                        androidx.compose.animation.core.tween(260)) { it / 6 }
+            },
+            exitTransition = {
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))
+            },
+            popEnterTransition = {
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220))
+            },
+            popExitTransition = {
+                androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180)) +
+                    androidx.compose.animation.slideOutHorizontally(
+                        androidx.compose.animation.core.tween(240)) { it / 6 }
+            },
         ) {
             composable(Routes.DASHBOARD) {
                 val realtimeViewModel: RealtimeViewModel = hiltViewModel()
