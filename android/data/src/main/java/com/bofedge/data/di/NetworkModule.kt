@@ -1,11 +1,12 @@
 ﻿package com.bofedge.data.di
 
+import android.content.Context
 import com.bofedge.data.network.FirebaseAuthInterceptor
 import com.bofedge.data.remote.BofApi
 import com.bofedge.data.repository.InstrumentRepositoryImpl
 import com.bofedge.data.repository.NotificationRepositoryImpl
-import com.bofedge.data.repository.WatchlistRepositoryImpl
 import com.bofedge.data.repository.UserRepositoryImpl
+import com.bofedge.data.repository.WatchlistRepositoryImpl
 import com.bofedge.domain.repository.InstrumentRepository
 import com.bofedge.domain.repository.NotificationRepository
 import com.bofedge.domain.repository.WatchlistRepository
@@ -15,13 +16,16 @@ import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.serialization.json.Json
+import okhttp3.Cache
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.io.File
 import java.util.concurrent.TimeUnit
 import javax.inject.Named
 import javax.inject.Singleton
@@ -59,11 +63,18 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttp(firebaseAuth: FirebaseAuth?): OkHttpClient {
+    fun provideOkHttp(
+        @ApplicationContext context: Context,
+        firebaseAuth: FirebaseAuth?,
+    ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC // request line only — never headers/bodies/tokens
         }
+        // 10 MB HTTP cache: backend sends Cache-Control: private, max-age=15
+        // on public GETs so revisits render instantly and survive brief drops.
+        val cache = Cache(File(context.cacheDir, "http_cache"), 10L * 1024 * 1024)
         return OkHttpClient.Builder()
+            .cache(cache)
             .addInterceptor(FirebaseAuthInterceptor(firebaseAuth))
             .addInterceptor(com.bofedge.data.network.RetryOnceOnIOException())
             .addInterceptor(logging)

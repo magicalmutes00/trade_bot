@@ -1,4 +1,4 @@
-"""Heatmap endpoint (public, Phase 5)."""
+﻿"""Heatmap endpoint (public, Phase 5)."""
 
 from typing import Annotated
 
@@ -8,6 +8,7 @@ from app.api.deps import DbSession
 from app.models.enums import InstrumentType
 from app.schemas.common import ApiResponse, ok
 from app.schemas.heatmap_watchlist import HeatmapResponse
+from app.core import rediscache
 from app.services.heatmap_service import HeatmapService
 from app.services.instrument_service import parse_timeframe
 
@@ -40,10 +41,15 @@ async def heatmap(
     # (sector filter applied post-query via cells; kept for API parity)
     _ = sector_id
 
-    data = await HeatmapService(db).build(
-        group_by=group_by,
-        instrument_type=instrument_type,
-        timeframe=parse_timeframe(timeframe) if timeframe else None,
-        only_with_signals=only_with_signals,
+    tf = parse_timeframe(timeframe) if timeframe else None
+    key = f"heat:v1:{group_by}:{type or ''}:{tf.value if tf else 'any'}:{only_with_signals}"
+    data = await rediscache.acached_json(
+        key, 15,
+        lambda: HeatmapService(db).build(
+            group_by=group_by, instrument_type=instrument_type,
+            timeframe=tf, only_with_signals=only_with_signals),
     )
     return ok(HeatmapResponse.model_validate(data))
+
+
+

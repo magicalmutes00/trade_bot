@@ -62,6 +62,7 @@ class WatchlistService:
     # ------------------------------------------------------------------ CRUD
 
     async def list_for_user(self, user_id: uuid.UUID) -> list[dict]:
+        """All watchlists with enriched items — batched (no per-list N+1)."""
         wls = (
             await self.db.execute(
                 select(Watchlist)
@@ -69,7 +70,51 @@ class WatchlistService:
                 .order_by(Watchlist.position, Watchlist.created_at)
             )
         ).scalars().all()
-        return [await self._to_response(wl) for wl in wls]
+        if not wls:
+            return []
+
+        wl_ids = [w.id for w in wls]
+        pairs_all = (
+            await self.db.execute(
+                select(WatchlistItem, Instrument)
+                .join(Instrument, Instrument.id == WatchlistItem.instrument_id)
+                .options(selectinload(Instrument.sector))
+                .where(WatchlistItem.watchlist_id.in_(wl_ids))
+                .order_by(WatchlistItem.position, WatchlistItem.added_at)
+            )
+        ).all()
+
+        by_watchlist: dict[uuid.UUID, list] = {}
+        for pair in pairs_all:
+            by_watchlist.setdefault(pair[0].watchlist_id, []).append(pair)
+
+        ids = [p[0].instrument_id for p in pairs_all]
+        quotes = await enr.quotes_by_instrument(self.db, ids)
+        signals = await enr.latest_signals_by_instrument(self.db, ids)
+
+        def fmt(item, inst):
+            return {
+                "instrument_id": item.instrument_id,
+                "symbol": inst.symbol,
+                "name": inst.name,
+                "instrument_type": inst.instrument_type.value
+                    if hasattr(inst.instrument_type, "value") else str(inst.instrument_type),
+                "sector_name": inst.sector.name if inst.sector else None,
+                "position": item.position,
+                "alert_enabled": item.alert_enabled,
+                **enr.quote_fields(quotes.get(item.instrument_id)),
+                **enr.bof_fields(signals.get(item.instrument_id)),
+            }
+
+        return [
+            {
+                "id": wl.id,
+                "name": wl.name,
+                "created_at": wl.created_at,
+                "items": [fmt(i, inst) for i, inst in by_watchlist.get(wl.id, [])],
+            }
+            for wl in wls
+        ]
 
     async def get(self, user_id: uuid.UUID, watchlist_id: uuid.UUID) -> dict:
         wl = await self._owned(user_id, watchlist_id)

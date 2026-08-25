@@ -26,6 +26,7 @@ from app.schemas.admin import (
     SystemEventRow,
 )
 from app.schemas.common import ApiResponse, ok
+from app.core import rediscache
 from app.services.admin_service import AdminService
 from app.services.instrument_service import parse_timeframe, parse_uuid
 from app.services.system_events import list_events
@@ -56,9 +57,10 @@ def _user_row(u) -> AdminUserRow:  # noqa: ANN001
 async def stats(admin: AdminUser, db: DbSession) -> ApiResponse[AdminStats]:
     from app.websocket.manager import manager
 
-    data = await AdminService(db).stats(
-        ws_connections=manager.count,
-        provider=settings.MARKET_DATA_PROVIDER,
+    data = await rediscache.acached_json(
+        "admin:stats:v1", 60,
+        lambda: AdminService(db).stats(
+            ws_connections=manager.count, provider=settings.MARKET_DATA_PROVIDER),
     )
     return ok(AdminStats.model_validate(data))
 
@@ -135,22 +137,16 @@ async def instruments_coverage(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> ApiResponse[PaginatedCoverage]:
-    insts, total, counts, quotes = (
-        await AdminService(db).instruments_with_coverage(limit=limit, offset=offset)
+    async def build() -> dict:
+        payload = await AdminService(db).coverage_payload(limit=limit, offset=offset)
+        for item in payload["items"]:
+            item.pop("_type", None)  # internal enum helper, not part of the schema
+        return payload
+
+    data = await rediscache.acached_json(
+        f"admin:cov:{limit}:{offset}", 60, build
     )
-    items = []
-    for i in insts:
-        cnt, last_ts = counts.get(i.id, (0, None))
-        items.append(AdminMarketDataCoverage(
-            id=i.id,
-            symbol=i.symbol,
-            exchange=i.exchange,
-            is_active=i.is_active,
-            m15_candles=cnt,
-            last_m15_ts=last_ts,
-            quote_updated_at=quotes.get(i.id),
-        ))
-    return ok(PaginatedCoverage(items=items, total=total, limit=limit, offset=offset))
+    return ok(PaginatedCoverage.model_validate(data))
 
 
 @router.patch("/instruments/{instrument_id}", response_model=ApiResponse[dict],
@@ -299,4 +295,8 @@ async def admin_events(
 
 
 _ = pyjwt  # reserved
+
+
+
+
 

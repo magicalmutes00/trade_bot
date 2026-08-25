@@ -1,4 +1,4 @@
-"""Admin service: platform statistics, user management, coverage reports."""
+﻿"""Admin service: platform statistics, user management, coverage reports."""
 
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -120,7 +120,7 @@ class AdminService:
         await self.db.flush()
         return user
 
-    async def instruments_with_coverage(self, *, limit: int, offset: int):
+    async def coverage_payload(self, *, limit: int, offset: int) -> dict:
         total = (
             await self.db.execute(select(func.count()).select_from(Instrument))
         ).scalar_one()
@@ -146,10 +146,34 @@ class AdminService:
                 )
             ).all()
         }
-        return insts, int(total), counts, quotes
+
+        def val(v):  # enum → str for JSON caching
+            return v.value if hasattr(v, "value") else str(v)
+
+        items = []
+        for i in insts:
+            cnt, last_ts = counts.get(i.id, (0, None))
+            items.append({
+                "id": str(i.id),
+                "symbol": i.symbol,
+                "exchange": i.exchange,
+                "is_active": i.is_active,
+                "m15_candles": cnt,
+                "last_m15_ts": last_ts.isoformat() if last_ts else None,
+                "quote_updated_at": quotes.get(i.id).isoformat()
+                    if quotes.get(i.id) else None,
+                "_type": val(i.instrument_type),
+            })
+
+        return {
+            "items": items,
+            "total": int(total),
+            "limit": limit,
+            "offset": offset,
+        }
 
 
-def _case(condition):  # noqa: ANN001 — tiny helper for conditional sums
+def _case(condition):  # noqa: ANN001 â€” tiny helper for conditional sums
     from sqlalchemy import case
 
     return case((condition, 1), else_=0)
@@ -160,3 +184,4 @@ def case_active():
 
 
 __all__ = ["AdminService"]
+

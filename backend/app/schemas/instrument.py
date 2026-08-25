@@ -52,14 +52,16 @@ class PaginatedInstruments(BaseModel):
 
 
 class CandleResponse(BaseModel):
+    """Chart payload — compact floats (2 dp) keep responses ~half the size."""
+
     model_config = ConfigDict(from_attributes=True)
 
     timeframe: Timeframe
     ts: datetime
-    open: Decimal
-    high: Decimal
-    low: Decimal
-    close: Decimal
+    open: float
+    high: float
+    low: float
+    close: float
     volume: int | None = None
 
 

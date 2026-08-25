@@ -112,8 +112,20 @@ class InstrumentService:
         )
         has_more = len(rows) > limit
         rows = rows[:limit]
+        items = [
+            CandleResponse(
+                timeframe=c.timeframe,
+                ts=c.ts,
+                open=round(float(c.open), 2),
+                high=round(float(c.high), 2),
+                low=round(float(c.low), 2),
+                close=round(float(c.close), 2),
+                volume=int(c.volume or 0),
+            )
+            for c in rows
+        ]
         return PaginatedCandles(
-            items=[CandleResponse.model_validate(c) for c in rows],
+            items=items,
             timeframe=timeframe,
             limit=limit,
             has_more=has_more,

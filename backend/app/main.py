@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 
 from app.api.v1.router import api_router
@@ -92,6 +93,30 @@ def create_app() -> FastAPI:
             response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
     register_exception_handlers(app)
+
+    # Phase 9 perf: compress sizeable JSON (candles/dashboard shrink 60-80%).
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+
+    # Phase 9 perf: short client-side caching for public GET endpoints so
+    # Android's OkHttp cache serves revisits/offline instantly.
+    CACHEABLE_PREFIXES = (
+        "/api/v1/dashboard",
+        "/api/v1/heatmap",
+        "/api/v1/instruments",
+        "/api/v1/signals",
+    )
+
+    @app.middleware("http")
+    async def cache_headers(request: Request, call_next):  # noqa: ANN001
+        response = await call_next(request)
+        path = request.url.path
+        if (
+            request.method == "GET"
+            and response.status_code == 200
+            and any(path.startswith(p) for p in CACHEABLE_PREFIXES)
+        ):
+            response.headers["Cache-Control"] = "private, max-age=15"
+        return response
 
     @app.get("/healthz", tags=["health"], summary="Liveness probe")
     async def liveness() -> dict:

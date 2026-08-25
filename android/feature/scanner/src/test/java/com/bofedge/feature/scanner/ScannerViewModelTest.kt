@@ -50,6 +50,9 @@ private class FakeRepo : InstrumentRepository {
 
     override suspend fun signalStats(id: String): ApiResult<com.bofedge.domain.model.SignalStatsDetailed> =
         error("not used in scanner tests")
+
+    override suspend fun candles(id: String, timeframe: String, limit: Int): ApiResult<List<com.bofedge.domain.model.Candle>> =
+        error("not used in scanner tests")
 }
 
 private class FakeWatchlists : com.bofedge.domain.repository.WatchlistRepository {
