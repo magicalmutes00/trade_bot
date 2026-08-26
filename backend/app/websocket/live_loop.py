@@ -13,7 +13,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.models import Instrument
-from app.services.providers.factory import build_provider
+from app.services.providers.factory import build_verified_provider
 from app.websocket import events
 from app.websocket.manager import manager
 
@@ -42,7 +42,7 @@ class LiveLoop:
             logger.warning("live loop: no instruments found")
             return
 
-        self._provider = build_provider(reference)
+        self._provider = await build_verified_provider(reference)
         self._symbols = [r["symbol"] for r in reference]
         self._task = asyncio.create_task(self._run(), name="live-loop")
         logger.info("live loop started (%d symbols, %s, tick=%ss)",

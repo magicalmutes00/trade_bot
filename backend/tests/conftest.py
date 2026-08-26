@@ -51,6 +51,19 @@ def _make_engine(url: str, is_pg: bool) -> AsyncEngine:
     )
 
 
+@pytest.fixture(autouse=True)
+def _force_demo_provider(monkeypatch):
+    """Keep the suite hermetic: default every test to the demo provider so no
+    test dials real market-data APIs. Tests that exercise provider selection
+    override this with their own monkeypatch.setenv (applied later → wins)."""
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "demo")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.fixture(scope="session")
 def _pg_schema() -> None:
     """Create the full schema once on the remote database."""

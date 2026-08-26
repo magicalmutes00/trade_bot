@@ -6,6 +6,7 @@ import UsersPage from './pages/Users'
 import InstrumentsPage from './pages/Instruments'
 import SignalsPage from './pages/Signals'
 import MarketDataPage from './pages/MarketData'
+import ChartsPage from './pages/Charts'
 import SessionsPage from './pages/Sessions'
 import HealthPage from './pages/Health'
 import LogsPage from './pages/Logs'
@@ -13,13 +14,14 @@ import LoginPage from './pages/Login'
 
 type PageKey =
   | 'dashboard' | 'users' | 'instruments' | 'signals'
-  | 'marketdata' | 'sessions' | 'health' | 'logs'
+  | 'marketdata' | 'charts' | 'sessions' | 'health' | 'logs'
 
 const NAV: { key: PageKey; label: string }[] = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'users', label: 'Users' },
   { key: 'instruments', label: 'Instruments' },
   { key: 'signals', label: 'Signals' },
+  { key: 'charts', label: 'Charts' },
   { key: 'marketdata', label: 'Market Data' },
   { key: 'sessions', label: 'Market Sessions' },
   { key: 'health', label: 'System Health' },
@@ -145,6 +147,7 @@ export default function App() {
         {page === 'instruments' && <InstrumentsPage />}
         {page === 'signals' && <SignalsPage />}
         {page === 'marketdata' && <MarketDataPage />}
+        {page === 'charts' && <ChartsPage />}
         {page === 'sessions' && <SessionsPage />}
         {page === 'health' && <HealthPage />}
         {page === 'logs' && <LogsPage />}

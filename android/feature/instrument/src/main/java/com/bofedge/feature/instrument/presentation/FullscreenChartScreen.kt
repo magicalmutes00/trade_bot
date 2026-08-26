@@ -2,14 +2,14 @@ package com.bofedge.feature.instrument.presentation
 
 import android.app.Activity
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,11 +22,16 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bofedge.feature.instrument.chart.CandleChartMath
 import com.bofedge.feature.instrument.chart.KiteStyleChart
+import com.bofedge.feature.instrument.chart.TradingViewChartWebView
 
-private val FS_TIMEFRAMES = listOf("15m", "1h", "4h", "1D")
+/** Every interval the backend serves (backend Timeframe enum). */
+private val CHART_TIMEFRAMES = listOf("1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W")
 
 @Composable
-fun FullscreenChartScreen(viewModel: InstrumentDetailViewModel) {
+fun FullscreenChartScreen(
+    viewModel: InstrumentDetailViewModel,
+    onClose: () -> Unit,
+) {
     val context = LocalContext.current
     val activity = context as? Activity
 
@@ -37,6 +42,7 @@ fun FullscreenChartScreen(viewModel: InstrumentDetailViewModel) {
     var showEma9 by remember { mutableStateOf(false) }
     var showBb by remember { mutableStateOf(false) }
     var showRsi by remember { mutableStateOf(false) }
+    var useTradingView by rememberSaveable { mutableStateOf(false) }
 
     // Hide system bars
     LaunchedEffect(Unit) {
@@ -62,13 +68,17 @@ fun FullscreenChartScreen(viewModel: InstrumentDetailViewModel) {
     ) {
         // ---- Top bar ----
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = onClose) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color(0xFFEAF0F6))
+            }
+
             when (val s = detailState) {
                 is InstrumentDetailUiState.Ready -> {
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text(s.detail.symbol, fontWeight = FontWeight.Bold,
                              color = Color(0xFFEAF0F6))
                         s.detail.quote?.lastPrice?.let {
@@ -77,48 +87,44 @@ fun FullscreenChartScreen(viewModel: InstrumentDetailViewModel) {
                         }
                     }
                 }
-                else -> Text("Loading…", color = Color(0xFF8A97A8))
+                else -> Text("Loading…", color = Color(0xFF8A97A8),
+                             modifier = Modifier.weight(1f))
             }
 
-            IconButton(onClick = { activity?.finish() }) {
-                Icon(Icons.Filled.Close, "Close", tint = Color(0xFFEAF0F6))
-            }
+            ChartDropdown(
+                label = candleState.timeframe,
+                items = CHART_TIMEFRAMES,
+                selectedItem = candleState.timeframe,
+                itemLabel = { it },
+                isSelected = { it == candleState.timeframe },
+                onSelect = { tf -> viewModel.onTimeframeChange(tf) },
+            )
+
+            ChartDropdown(
+                label = indicatorsLabel(showSma20, showEma9, showBb, showRsi),
+                items = listOf("MA20", "EMA9", "BB", "RSI"),
+                selectedItem = null,
+                itemLabel = { it },
+                isSelected = { ind -> isIndicatorOn(ind, showSma20, showEma9, showBb, showRsi) },
+                onSelect = { ind ->
+                    when (ind) {
+                        "MA20" -> showSma20 = !showSma20
+                        "EMA9" -> showEma9 = !showEma9
+                        "BB" -> showBb = !showBb
+                        "RSI" -> showRsi = !showRsi
+                    }
+                },
+                modifier = Modifier.padding(start = 4.dp),
+            )
         }
 
-        // ---- Timeframe chips ----
+        // ---- Renderer toggle ----
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            FS_TIMEFRAMES.forEach { tf ->
-                FilterChip(
-                    selected = candleState.timeframe == tf,
-                    onClick = { viewModel.onTimeframeChange(tf) },
-                    label = { Text(tf, style = MaterialTheme.typography.labelSmall) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color(0xFF4E9CFF).copy(alpha = .2f),
-                        selectedLabelColor = Color(0xFF4E9CFF),
-                    ),
-                )
-            }
-        }
-
-        Spacer(Modifier.height(6.dp))
-
-        // ---- Indicator chips (scrollable row) ----
-        Row(
-            Modifier.fillMaxWidth()
-                .padding(horizontal = 12.dp)
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            IndicatorChip("MA20", showSma20) { showSma20 = !showSma20 }
-            IndicatorChip("EMA9", showEma9) { showEma9 = !showEma9 }
-            IndicatorChip("BB", showBb) { showBb = !showBb }
-            IndicatorChip("RSI", showRsi) { showRsi = !showRsi }
-        }
-
-        Spacer(Modifier.height(4.dp))
+            RendererChip("Native", !useTradingView) { useTradingView = false }
+            RendererChip("TradingView", useTradingView) { useTradingView = true }        }
 
         // ---- Chart fills remaining space ----
         Box(Modifier.weight(1f)) {
@@ -137,19 +143,30 @@ fun FullscreenChartScreen(viewModel: InstrumentDetailViewModel) {
                 }
                 else -> {
                     val cs = candleState.candles
-                    KiteStyleChart(
-                        candles = cs,
-                        showSma20 = showSma20,
-                        showEma9 = showEma9,
-                        showBb = showBb,
-                        showRsi = showRsi,
-                        sma20Values = CandleChartMath.sma(cs, 20),
-                        ema9Values = CandleChartMath.ema(cs, 9),
-                        bbUpper = if (showBb) CandleChartMath.bollinger(cs).upper else null,
-                        bbLower = if (showBb) CandleChartMath.bollinger(cs).lower else null,
-                        rsiValues = if (showRsi) CandleChartMath.rsi(cs) else null,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    if (useTradingView) {
+                        TradingViewChartWebView(
+                            candles = cs,
+                            showSma20 = showSma20,
+                            showEma9 = showEma9,
+                            showBb = showBb,
+                            showRsi = showRsi,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        KiteStyleChart(
+                            candles = cs,
+                            showSma20 = showSma20,
+                            showEma9 = showEma9,
+                            showBb = showBb,
+                            showRsi = showRsi,
+                            sma20Values = CandleChartMath.sma(cs, 20),
+                            ema9Values = CandleChartMath.ema(cs, 9),
+                            bbUpper = if (showBb) CandleChartMath.bollinger(cs).upper else null,
+                            bbLower = if (showBb) CandleChartMath.bollinger(cs).lower else null,
+                            rsiValues = if (showRsi) CandleChartMath.rsi(cs) else null,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }
@@ -159,14 +176,100 @@ fun FullscreenChartScreen(viewModel: InstrumentDetailViewModel) {
 }
 
 @Composable
-private fun IndicatorChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun <T> ChartDropdown(
+    label: String,
+    items: List<T>,
+    selectedItem: T?,
+    itemLabel: (T) -> String,
+    isSelected: (T) -> Boolean,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier) {
+        TextButton(
+            onClick = { expanded = true },
+            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF8A97A8)),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selectedItem != null && isSelected(selectedItem)) {
+                    Color(0xFF4E9CFF)
+                } else {
+                    Color(0xFFEAF0F6)
+                },
+            )
+            Icon(Icons.Filled.ArrowDropDown, null, tint = Color(0xFF8A97A8))
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = Color(0xFF141B25),
+        ) {
+            items.forEach { item ->
+                val selected = isSelected(item)
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            itemLabel(item),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (selected) Color(0xFF4E9CFF) else Color(0xFFEAF0F6),
+                        )
+                    },
+                    trailingIcon = if (selected) {
+                        { Icon(Icons.Filled.Check, null, tint = Color(0xFF4E9CFF)) }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        onSelect(item)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun isIndicatorOn(
+    ind: String,
+    sma20: Boolean, ema9: Boolean, bb: Boolean, rsi: Boolean,
+): Boolean = when (ind) {
+    "MA20" -> sma20
+    "EMA9" -> ema9
+    "BB" -> bb
+    "RSI" -> rsi
+    else -> false
+}
+
+private fun indicatorsLabel(
+    sma20: Boolean, ema9: Boolean, bb: Boolean, rsi: Boolean,
+): String {
+    val on = listOfNotNull(
+        "MA20".takeIf { sma20 },
+        "EMA9".takeIf { ema9 },
+        "BB".takeIf { bb },
+        "RSI".takeIf { rsi },
+    )
+    return when {
+        on.isEmpty() -> "Indicators"
+        on.size == 1 -> on[0]
+        else -> "${on.size} indicators"
+    }
+}
+
+@Composable
+private fun RendererChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         shape = MaterialTheme.shapes.small,
         color = if (selected) Color(0xFF4E9CFF).copy(alpha = .2f) else Color.Transparent,
         border = androidx.compose.foundation.BorderStroke(
             1.dp, if (selected) Color(0xFF4E9CFF) else Color(0xFF232D3D),
         ),
-        modifier = Modifier.clickable(onClick = onClick),
+        onClick = onClick,
     ) {
         Text(
             label,

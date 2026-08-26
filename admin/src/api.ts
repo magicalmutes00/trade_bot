@@ -132,6 +132,10 @@ export interface AdminHealthInfo {
   live_loop_enabled: boolean; version: string
 }
 
+export interface Candle {
+  ts: string; open: number; high: number; low: number; close: number; volume: number
+}
+
 export const api = {
   stats: () => request<AdminStats>('/api/v1/admin/stats'),
   health: () => request<AdminHealthInfo>('/api/v1/admin/health'),
@@ -165,6 +169,15 @@ export const api = {
     const qs = new URLSearchParams({ level, limit: String(limit), offset: String(offset) })
     return request<Paginated<EventRow>>(`/api/v1/admin/events?${qs}`)
   },
+
+  // Public endpoints (no ADMIN guard) — used by the TradingView charts page.
+  instruments: (q = '', limit = 100, offset = 0) => {
+    const qs = new URLSearchParams({ q, limit: String(limit), offset: String(offset) })
+    return request<Paginated<CoverageRow>>(`/api/v1/instruments?${qs}`)
+  },
+  candles: (instrumentId: string, timeframe = '15m', limit = 500) =>
+    request<Paginated<Candle>>(
+      `/api/v1/instruments/${instrumentId}/candles?timeframe=${timeframe}&limit=${limit}`),
 }
 
 

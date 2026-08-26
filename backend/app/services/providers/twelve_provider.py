@@ -29,6 +29,17 @@ class ProviderUnavailableError(AppError):
 
 _BASE = "https://api.twelvedata.com"
 
+_INTERVAL_MAP = {
+    "1m": "1min",
+    "5m": "5min",
+    "15m": "15min",
+    "30m": "30min",
+    "1h": "1h",
+    "4h": "4h",
+    "1D": "1day",
+    "1W": "1week",
+}
+
 
 class TwelveDataProvider(MarketDataProvider):
     name = "twelve_data"
@@ -41,6 +52,7 @@ class TwelveDataProvider(MarketDataProvider):
         max_retries: int = 3,
         timeout_seconds: float = 15.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        reference_instruments: list[dict] | None = None,
     ) -> None:
         self._key = api_key
         self._max_retries = max_retries
@@ -48,9 +60,17 @@ class TwelveDataProvider(MarketDataProvider):
         self._client = httpx.AsyncClient(transport=transport)
         self._last_call = 0.0
         self._min_interval = 60.0 / 8  # free tier: 8 credits/min
+        self._instruments = reference_instruments or []
+        self._exchange_by_symbol = {
+            r["symbol"]: r.get("exchange") for r in self._instruments
+            if r.get("exchange") in ("NSE", "BSE")
+        }
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def get_instruments(self) -> list[dict]:
+        return list(self._instruments)
 
     async def _get(self, path: str, params: dict) -> dict:
         params["apikey"] = self._key
@@ -99,7 +119,11 @@ class TwelveDataProvider(MarketDataProvider):
     async def get_quotes(self, symbols: list[str]) -> list[dict]:
         """Batch quote — N symbols = N credits."""
         joined = ",".join(symbols)
-        data = await self._get("/quote", {"symbol": joined})
+        params: dict = {"symbol": joined}
+        ex = self._exchange_for(symbols[0])
+        if ex:
+            params["exchange"] = ex
+        data = await self._get("/quote", params)
 
         # Response is keyed by symbol when batch; single object when one symbol
         if len(symbols) == 1 and data.get("symbol"):
@@ -137,14 +161,15 @@ class TwelveDataProvider(MarketDataProvider):
         self, symbol: str, timeframe: str, bars: int,
         *, end_exclusive_index: int | None = None,
     ) -> list[dict]:
-        interval_map = {"1m": "1min", "5m": "5min", "15m": "15min",
-                        "30m": "30min", "1h": "1h", "4h": "4h", "1D": "1day"}
-        interval = interval_map.get(timeframe, "15min")
-        yf_sym = self._yf(symbol)
+        interval = _INTERVAL_MAP.get(timeframe, "15min")
+        params: dict = {
+            "symbol": symbol, "interval": interval, "outputsize": bars,
+        }
+        ex = self._exchange_for(symbol)
+        if ex:
+            params["exchange"] = ex
+        data = await self._get("/time_series", params)
 
-        data = await self._get("/time_series", {
-            "symbol": yf_sym, "interval": interval, "outputsize": bars,
-        })
         values = data.get("values", [])
 
         out = []
@@ -155,13 +180,16 @@ class TwelveDataProvider(MarketDataProvider):
                 "high": float(v["high"]),
                 "low": float(v["low"]),
                 "close": float(v["close"]),
-                "volume": int(v.get("volume", 0)),
+                "volume": int(v.get("volume") or 0),
             })
         return out
 
     def _yf(self, symbol: str) -> str:
         """Twelve Data uses plain tickers for NSE — pass through."""
         return symbol
+
+    def _exchange_for(self, symbol: str) -> str | None:
+        return self._exchange_by_symbol.get(symbol)
 
     # ------------------------------------------------------------------ live
 

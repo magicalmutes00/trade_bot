@@ -52,15 +52,18 @@ async def run_pipeline(
     days: int = 45,
     progress=None,
     skip_existing: bool = False,
+    provider=None,
 ) -> dict:
     """Ingest + analyse every active instrument (or a filtered subset).
 
     ``progress(symbol, done, totals)`` fires after each instrument.
     ``skip_existing`` drops instruments that already hold a full M15 window â€”
     makes long backfills resumable after interruptions.
+    ``provider`` — pre-built provider (verified); built fresh when omitted.
     """
     reference = await _load_reference(db)
-    provider = build_provider(reference)
+    if provider is None:
+        provider = build_provider(reference)
     history_bars = int(timedelta(days=days).total_seconds() // (15 * 60)) + 2
 
     result = await db.execute(select(Instrument).where(Instrument.is_active.is_(True)))
@@ -92,7 +95,23 @@ async def run_pipeline(
     }
 
     for done, inst in enumerate(instruments, start=1):
-        raw = await provider.get_candles(inst.symbol, "15m", history_bars)
+        try:
+            raw = await provider.get_candles(inst.symbol, "15m", history_bars)
+        except Exception as exc:  # noqa: BLE001 — one bad symbol ≠ dead run
+            logger.warning(
+                "pipeline: no candles for %s (%s) — skipped",
+                inst.symbol, str(exc)[:120],
+            )
+            totals["instruments_failed"] = totals.get("instruments_failed", 0) + 1
+            if progress is not None:
+                progress(inst.symbol, done, totals)
+            continue
+        if not raw:
+            logger.warning("pipeline: empty candle series for %s — skipped", inst.symbol)
+            totals["instruments_failed"] = totals.get("instruments_failed", 0) + 1
+            if progress is not None:
+                progress(inst.symbol, done, totals)
+            continue
 
         for tf in STORAGE_TIMEFRAMES:
             series = normalise(_aggregate(raw, tf.value))
@@ -136,7 +155,11 @@ async def _refresh_quote(
     db: AsyncSession, provider, inst: Instrument
 ) -> None:
     """Latest-quote row from recent bars (feeds dashboard + heatmap)."""
-    quote = await provider.get_quote(inst.symbol)
+    try:
+        quote = await provider.get_quote(inst.symbol)
+    except Exception as exc:  # noqa: BLE001 — quote failure shouldn't kill the pass
+        logger.warning("pipeline: quote failed for %s (%s)", inst.symbol, str(exc)[:120])
+        return
     if quote is None:
         return
 

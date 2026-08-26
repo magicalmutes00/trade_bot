@@ -21,10 +21,14 @@ logger = get_logger(__name__)
 _CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 
 _INTERVAL_MAP = {
+    "1m": ("1m", "5d"),        # Yahoo caps 1m history at ~7 days
+    "5m": ("5m", "30d"),
     "15m": ("15m", "30d"),
+    "30m": ("30m", "60d"),
     "1h": ("60m", "60d"),
-    "4h": ("60m", "90d"),
+    "4h": ("60m", "120d"),     # no native 4h — aggregated from hourly below
     "1D": ("1d", "2y"),
+    "1W": ("1wk", "5y"),
 }
 
 _HEADERS = {
@@ -136,6 +140,9 @@ class YahooFinanceProvider(MarketDataProvider):
                 "volume": int(volumes[i] or 0),
             })
 
+        if timeframe == "4h":
+            bars_out = _aggregate_4h(bars_out)
+
         return bars_out[-bars:]
 
     async def get_live_quotes(self, symbols: list[str]) -> list[dict]:
@@ -174,16 +181,29 @@ class YahooFinanceProvider(MarketDataProvider):
             "previous_close": prev,
             "change": change,
             "change_pct": change_pct,
+            "day_open": meta.get("regularMarketOpen"),
+            "day_high": meta.get("regularMarketDayHigh"),
+            "day_low": meta.get("regularMarketDayLow"),
+            "volume": int(meta.get("regularMarketVolume") or 0),
             "updated_at": datetime.now(timezone.utc),
             "is_demo": False,
         }
 
 
-_INTERVAL_MAP = {
-    "15m": ("15m", "30d"),
-    "1h": ("60m", "60d"),
-    "4h": ("60m", "90d"),
-    "1D": ("1d", "2y"),
-}
+def _aggregate_4h(bars: list[dict]) -> list[dict]:
+    """Fold consecutive hourly bars into 4-hour candles (oldest-first input)."""
+    out: list[dict] = []
+    for b in bars:
+        if out and (b["ts"] - out[-1]["ts"]).total_seconds() < 4 * 3600 \
+                and out[-1]["ts"].astimezone(timezone.utc).date() == b["ts"].date():
+            last = out[-1]
+            last["high"] = max(last["high"], b["high"])
+            last["low"] = min(last["low"], b["low"])
+            last["close"] = b["close"]
+            last["volume"] += b["volume"]
+        else:
+            out.append(dict(b))
+    return out
+
 
 __all__ = ["YahooFinanceProvider"]

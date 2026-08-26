@@ -154,7 +154,10 @@ fun MainShell(user: AuthUser) {
                 )
             }
             composable(Routes.FULLSCREEN_CHART) { backStackEntry ->
-                FullscreenChartScreen(viewModel = hiltViewModel())
+                FullscreenChartScreen(
+                    viewModel = hiltViewModel(),
+                    onClose = { navController.popBackStack() },
+                )
             }
             composable(Routes.HEATMAP) {
                 val vm: com.bofedge.feature.heatmap.presentation.HeatmapViewModel = hiltViewModel()

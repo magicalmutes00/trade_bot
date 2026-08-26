@@ -34,10 +34,29 @@ async def lifespan(_: FastAPI):
             from app.workers.demo_pipeline import run_pipeline
 
             async def _startup_backfill():
+                from sqlalchemy import select
+
                 from app.db.session import SessionFactory
+                from app.services.providers.factory import build_verified_provider
+                from app.models import Instrument
 
                 async with SessionFactory() as db:
-                    await run_pipeline(db, days=30)
+                    rows = (
+                        await db.execute(
+                            select(Instrument).where(Instrument.is_active.is_(True))
+                        )
+                    ).scalars().all()
+                    reference = [
+                        {"symbol": i.symbol, "exchange": i.exchange, "name": i.name,
+                         "instrument_type": i.instrument_type.value}
+                        for i in rows
+                    ]
+
+                # Build once, probe once, share across pipeline runs.
+                provider = await build_verified_provider(reference)
+
+                async with SessionFactory() as db:
+                    await run_pipeline(db, days=30, provider=provider)
                     logger.info("startup backfill complete")
 
             backfill_task = asyncio.create_task(_startup_backfill())
@@ -55,7 +74,21 @@ async def lifespan(_: FastAPI):
         except Exception:
             logger.exception("live loop failed to start")
             live_loop = None
+
+    # --- Intraday scheduler: persists quotes + refreshes pipeline data ---
+    scheduler = None
+    if settings.MARKET_DATA_PROVIDER != "none" and settings.MARKET_SCHEDULER_ENABLED:
+        from app.workers.market_scheduler import MarketScheduler
+
+        scheduler = MarketScheduler()
+        try:
+            await scheduler.start()
+        except Exception:
+            logger.exception("market scheduler failed to start")
+            scheduler = None
     yield
+    if scheduler is not None:
+        await scheduler.stop()
     if live_loop is not None:
         await live_loop.stop()
     if 'backfill_task' in dir():

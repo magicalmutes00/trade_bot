@@ -105,3 +105,41 @@ def test_factory_builds_real_when_configured(monkeypatch):
         assert p.is_demo is False and type(p).__name__ == "RealMarketDataProvider"
     finally:
         get_settings.cache_clear()
+
+
+def test_factory_twelve_data_with_key(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "twelve_data")
+    monkeypatch.setenv("MARKET_DATA_API_KEY", "td-key")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        p = build_provider()
+        assert type(p).__name__ == "TwelveDataProvider" and p.is_demo is False
+    finally:
+        get_settings.cache_clear()
+
+
+def test_factory_twelve_data_without_key_falls_back_to_yahoo(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "twelve_data")
+    monkeypatch.setenv("MARKET_DATA_API_KEY", "")   # explicit empty — overrides local .env
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        p = build_provider()
+        assert type(p).__name__ == "YahooFinanceProvider" and p.is_demo is False
+    finally:
+        get_settings.cache_clear()
+
+
+def test_factory_yahoo_selected_explicitly(monkeypatch):
+    monkeypatch.setenv("MARKET_DATA_PROVIDER", "yahoo")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        p = build_provider()
+        assert type(p).__name__ == "YahooFinanceProvider" and p.is_demo is False
+    finally:
+        get_settings.cache_clear()

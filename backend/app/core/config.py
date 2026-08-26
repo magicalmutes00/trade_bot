@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     MARKET_BASE_URL: str = "https://api.example-ohlcv.com/v1"
     MARKET_MAX_RETRIES: int = 3
 
+    # --- Market scheduler (intraday quote + pipeline refresh) ---
+    MARKET_SCHEDULER_ENABLED: bool = True
+    QUOTE_REFRESH_SECONDS: int = Field(default=120, ge=15, le=3600)
+    PIPELINE_REFRESH_SECONDS: int = Field(default=900, ge=300, le=21600)
+    PIPELINE_DAYS: int = Field(default=5, ge=2, le=45)
+
     # --- Seed admin ---
     SEED_ADMIN_EMAIL: str | None = None
     SEED_ADMIN_PASSWORD: str | None = None
