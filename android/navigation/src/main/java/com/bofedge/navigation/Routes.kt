@@ -16,6 +16,12 @@ object Routes {
 
     fun instrumentDetails(instrumentId: String) = "instrument/$instrumentId"
 
+    const val FULLSCREEN_CHART = "fullscreen/{instrumentId}/{symbol}"
+    const val ARG_FS_SYMBOL = "symbol"
+
+    fun fullscreenChart(instrumentId: String, symbol: String) =
+        "fullscreen/$instrumentId/${android.net.Uri.encode(symbol)}"
+
     const val SETTINGS = "settings"
     const val NOTIFICATIONS = "notifications"
     const val ABOUT = "about"

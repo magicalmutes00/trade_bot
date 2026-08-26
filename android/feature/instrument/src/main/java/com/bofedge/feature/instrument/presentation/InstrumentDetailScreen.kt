@@ -1,68 +1,159 @@
-﻿package com.bofedge.feature.instrument.presentation
+package com.bofedge.feature.instrument.presentation
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
 import com.bofedge.core.ui.components.EmptyState
+import com.bofedge.domain.model.Candle
+import com.bofedge.domain.model.InstrumentDetail
+import com.bofedge.domain.repository.InstrumentRepository
+import com.bofedge.domain.result.ApiResult
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import com.bofedge.feature.instrument.chart.CandleChartMath
 import com.bofedge.feature.instrument.chart.KiteStyleChart
-import com.bofedge.domain.model.InstrumentDetail
 
-private val TIMEFRAMES = listOf("15m", "1h", "4h", "1D")
+// ═══════════════════════════════════════════════════════════════════════
+//  ViewModel
+// ═══════════════════════════════════════════════════════════════════════
 
+sealed class InstrumentDetailUiState {
+    data object Loading : InstrumentDetailUiState()
+    data class Ready(val detail: InstrumentDetail) : InstrumentDetailUiState()
+    data class Error(val message: String) : InstrumentDetailUiState()
+}
 
-/** Instrument detail page (Phase 2). Chart canvas + overlays arrive in Phase 3. */
+data class CandlesUiState(
+    val loading: Boolean = false,
+    val timeframe: String = "15m",
+    val candles: List<Candle> = emptyList(),
+    val error: String? = null,
+)
+
+@HiltViewModel
+class InstrumentDetailViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
+    private val repository: InstrumentRepository,
+) : ViewModel() {
+
+    val instrumentId: String =
+        checkNotNull(savedStateHandle["instrumentId"])
+
+    private val _state =
+        MutableStateFlow<InstrumentDetailUiState>(InstrumentDetailUiState.Loading)
+    val state: StateFlow<InstrumentDetailUiState> = _state.asStateFlow()
+
+    private val _candles = MutableStateFlow(CandlesUiState(loading = true))
+    val candles: StateFlow<CandlesUiState> = _candles.asStateFlow()
+
+    init {
+        load()
+        loadCandles()
+    }
+
+    fun load() {
+        viewModelScope.launch {
+            _state.value = InstrumentDetailUiState.Loading
+            _state.value = when (val result = repository.detail(instrumentId)) {
+                is ApiResult.Success -> InstrumentDetailUiState.Ready(result.value)
+                is ApiResult.HttpError ->
+                    InstrumentDetailUiState.Error(result.message.ifBlank { "Server error" })
+                ApiResult.Offline ->
+                    InstrumentDetailUiState.Error("You appear to be offline.")
+            }
+        }
+    }
+
+    fun onTimeframeChange(timeframe: String) {
+        if (_candles.value.timeframe == timeframe) return
+        _candles.value = CandlesUiState(timeframe = timeframe, loading = true)
+        loadCandlesInternal()
+    }
+
+    fun loadCandles() = loadCandlesInternal()
+
+    private fun loadCandlesInternal() {
+        viewModelScope.launch {
+            _candles.value = _candles.value.copy(loading = true, error = null)
+            when (val r = repository.candles(instrumentId, _candles.value.timeframe)) {
+                is ApiResult.Success -> _candles.value = CandlesUiState(
+                    timeframe = _candles.value.timeframe,
+                    candles = r.value,
+                    loading = false,
+                )
+                is ApiResult.HttpError -> _candles.value = CandlesUiState(
+                    loading = false,
+                    error = r.message.ifBlank { "Server error" },
+                )
+                ApiResult.Offline -> _candles.value = CandlesUiState(
+                    loading = false,
+                    error = "You appear to be offline.",
+                )
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Route — exposes fullscreen navigation callback
+// ═══════════════════════════════════════════════════════════════════════
+
 @Composable
 fun InstrumentDetailRoute(
+    onOpenFullscreen: (String, String) -> Unit = { _, _ -> },
     viewModel: InstrumentDetailViewModel,
 ) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
+    val detailState by viewModel.state.collectAsStateWithLifecycle()
     val candleState by viewModel.candles.collectAsStateWithLifecycle()
-    when (val s = state) {
-        InstrumentDetailUiState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-            CircularProgressIndicator()
-        }
+
+    val symbol = (detailState as? InstrumentDetailUiState.Ready)?.detail?.symbol ?: ""
+
+    when (val s = detailState) {
+        InstrumentDetailUiState.Loading ->
+            Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+
         is InstrumentDetailUiState.Error -> EmptyState(
             title = "Couldn't load instrument",
             description = s.message,
             actionLabel = "Retry",
             onAction = viewModel::load,
         )
+
         is InstrumentDetailUiState.Ready -> InstrumentDetailContent(
             detail = s.detail,
             candleState = candleState,
             onTimeframeChange = viewModel::onTimeframeChange,
             onRetryCandles = viewModel::loadCandles,
+            onOpenFullscreen = { onOpenFullscreen(viewModel.instrumentId, symbol) },
         )
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Content
+// ═══════════════════════════════════════════════════════════════════════
+
+private val TIMEFRAMES = listOf("15m", "1h", "4h", "1D")
 
 @Composable
 private fun InstrumentDetailContent(
@@ -70,145 +161,116 @@ private fun InstrumentDetailContent(
     candleState: CandlesUiState,
     onTimeframeChange: (String) -> Unit,
     onRetryCandles: () -> Unit,
+    onOpenFullscreen: () -> Unit,
 ) {
-    var selectedTimeframe by rememberSaveable { mutableStateOf(candleState.timeframe) }
-    var showSma by rememberSaveable { mutableStateOf(false) }
+    var selectedTf by rememberSaveable { mutableStateOf(candleState.timeframe) }
+    var showSma20 by rememberSaveable { mutableStateOf(false) }
     var showEma9 by rememberSaveable { mutableStateOf(false) }
     var showBb by rememberSaveable { mutableStateOf(false) }
     var showRsi by rememberSaveable { mutableStateOf(false) }
 
     Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
     ) {
-        // --- Header ---
-        Text(detail.symbol, style = MaterialTheme.typography.headlineMedium)
-        Text(
-            detail.name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AssistChip(onClick = {}, label = { Text(detail.exchange) }, enabled = false)
-            AssistChip(onClick = {}, label = { Text(detail.type.lowercase()) }, enabled = false)
-            detail.sectorName?.let {
-                AssistChip(onClick = {}, label = { Text(it, maxLines = 1) }, enabled = false)
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // --- Price block: honest empty state until provider lands ---
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-            Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-                val q = detail.quote
-                if (q?.lastPrice != null) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "${detail.currency} ${"%.2f".format(q.lastPrice)}",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        q.changePct?.let {
-                            val up = it >= 0
-                            Text(
-                                "%+.2f%%".format(it),
-                                color = if (up) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.error,
-                            )
-                        }
-                    }
-                } else {
-                    Text(
-                        "Live quotes arrive with the market-data provider (Phase 3)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        // ── Header ──
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(detail.symbol, style = MaterialTheme.typography.headlineMedium)
+            Text(detail.name,
+                 style = MaterialTheme.typography.bodyMedium,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AssistChip(onClick = {}, enabled = false,
+                           label = { Text(detail.exchange) })
+                AssistChip(onClick = {}, enabled = false,
+                           label = { Text(detail.type.lowercase()) })
+                detail.sectorName?.let {
+                    AssistChip(onClick = {}, enabled = false,
+                               label = { Text(it, maxLines = 1) })
                 }
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        // ── Price ──
+        Card(colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+        ) {
+            Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
+                val q = detail.quote
+                if (q?.lastPrice != null) {
+                    Text("₹%.2f".format(q.lastPrice),
+                         style = MaterialTheme.typography.headlineMedium,
+                         fontWeight = FontWeight.Bold)
+                } else {
+                    Text("Live quotes arrive with real-time provider",
+                         style = MaterialTheme.typography.bodyMedium,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
 
-        // --- Timeframe selector (visual; wired to candles in Phase 3) ---
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Spacer(Modifier.height(12.dp))
+
+        // ── Timeframes ──
+        Row(Modifier.padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TIMEFRAMES.forEach { tf ->
-                FilterChip(
-                    selected = selectedTimeframe == tf,
-                    onClick = { selectedTimeframe = tf },
-                    label = { Text(tf) },
-                )
+                FilterChip(selected = selectedTf == tf,
+                           onClick = { selectedTf = tf; onTimeframeChange(tf) },
+                           label = { Text(tf) })
             }
         }
-        // --- Timeframe selector (drives candle loads) ---
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TIMEFRAMES.forEach { tf ->
-                FilterChip(
-                    selected = selectedTimeframe == tf,
-                    onClick = {
-                        selectedTimeframe = tf
-                        onTimeframeChange(tf)
-                    },
-                    label = { Text(tf) },
-                )
-            }
-        }
+
         Spacer(Modifier.height(6.dp))
 
-        // --- Indicator toggle chips ---
-        Row(
-            Modifier.fillMaxWidth(),
+        // ── Indicators + fullscreen button ──
+        Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            FilterChip(selected = showSma, onClick = { showSma = !showSma },
-                       label = { Text("MA20", color = androidx.compose.ui.graphics.Color(0xFFFF9800)) })
-            FilterChip(selected = showEma9, onClick = { showEma9 = !showEma9 },
-                       label = { Text("EMA9", color = androidx.compose.ui.graphics.Color(0xFFE040FB)) })
-            FilterChip(selected = showBb, onClick = { showBb = !showBb },
-                       label = { Text("BB", color = androidx.compose.ui.graphics.Color(0xFF4E9CFF)) })
-            FilterChip(selected = showRsi, onClick = { showRsi = !showRsi },
-                       label = { Text("RSI", color = MaterialTheme.colorScheme.primary) })
+            verticalAlignment = Alignment.CenterVertically) {
+            FilterChip(showSma20, { showSma20 = !showSma20 },
+                       label = { Text("MA20") })
+            FilterChip(showEma9, { showEma9 = !showEma9 },
+                       label = { Text("EMA9") })
+            FilterChip(showBb, { showBb = !showBb }, label = { Text("BB") })
+            FilterChip(showRsi, { showRsi = !showRsi }, label = { Text("RSI") })
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onOpenFullscreen, Modifier.size(28.dp)) {
+                Icon(Icons.Filled.OpenInFull, "Fullscreen",
+                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                     modifier = Modifier.size(18.dp))
+            }
         }
-        Spacer(Modifier.height(8.dp))
 
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        Spacer(Modifier.height(6.dp))
+
+        // ── Chart card ──
+        Card(colors = CardDefaults.cardColors(
+                 containerColor = MaterialTheme.colorScheme.surface),
+             modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
             Column(Modifier.padding(vertical = 10.dp, horizontal = 6.dp)) {
                 when {
                     candleState.loading -> Box(
-                        Modifier.fillMaxWidth().height(240.dp),
-                        contentAlignment = Alignment.Center,
-                    ) { CircularProgressIndicator() }
-
+                        Modifier.fillMaxWidth().height(240.dp), Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                     candleState.candles.isEmpty() -> Box(
-                        Modifier.fillMaxWidth().height(240.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
+                        Modifier.fillMaxWidth().height(240.dp), Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                candleState.error ?: "No candles for this timeframe yet.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                            )
+                            Text(candleState.error ?: "No candles for this timeframe yet.",
+                                 style = MaterialTheme.typography.bodyMedium,
+                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                 modifier = Modifier.padding(horizontal = 16.dp))
                             Spacer(Modifier.height(10.dp))
-                            androidx.compose.material3.TextButton(onClick = onRetryCandles) {
-                                Text("Retry")
-                            }
+                            TextButton(onClick = onRetryCandles) { Text("Retry") }
                         }
                     }
-
                     else -> {
                         val cs = candleState.candles
                         KiteStyleChart(
                             candles = cs,
-                            showSma20 = showSma,
+                            showSma20 = showSma20,
                             showEma9 = showEma9,
                             showBb = showBb,
                             showRsi = showRsi,
@@ -223,80 +285,45 @@ private fun InstrumentDetailContent(
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
-        // --- Signal statistics ---
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        // ── Signal stats ──
+        Card(colors = CardDefaults.cardColors(
+                 containerColor = MaterialTheme.colorScheme.surface),
+             modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("BOF signal history", style = MaterialTheme.typography.titleSmall)
+                Text("Signal history", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(12.dp))
-                if (!detail.stats.hasAny) {
-                    Text(
-                        "No signals yet â€” the BOF engine goes live in Phase 3.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                val st = detail.stats
+                if (!st.hasAny) {
+                    Text("No signals detected yet.",
+                         style = MaterialTheme.typography.bodyMedium,
+                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
-                    StatsGrid(detail)
+                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                        StatCell("Total", st.totalSignals)
+                        StatCell("Bullish", st.bullish)
+                        StatCell("Bearish", st.bearish)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                        StatCell("Confirmed", st.confirmed)
+                        StatCell("Invalidated", st.invalidated)
+                        Spacer(Modifier.weight(1f))
+                    }
                 }
             }
         }
 
-        Spacer(Modifier.height(16.dp))
-
-        // --- Reference facts ---
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                FactRow("Currency", detail.currency)
-                detail.tickSize?.let { FactRow("Tick size", it.toString()) }
-                detail.lotSize?.let { FactRow("Lot size", it.toString()) }
-                FactRow("Instrument ID", detail.id.take(8) + "â€¦")
-            }
-        }
+        Spacer(Modifier.height(80.dp)) // bottom padding for nav bar clearance
     }
 }
 
 @Composable
-private fun StatsGrid(detail: InstrumentDetail) {
-    val s = detail.stats
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Stat("Total", s.totalSignals)
-        Stat("Bullish", s.bullish)
-        Stat("Bearish", s.bearish)
-    }
-    Spacer(Modifier.height(8.dp))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Stat("Confirmed", s.confirmed)
-        Stat("Invalidated", s.invalidated)
-        Spacer(Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun Stat(label: String, value: Int) {
+private fun StatCell(label: String, value: Int) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("$value", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(label, style = MaterialTheme.typography.labelSmall,
+             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-
-@Composable
-private fun FactRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
