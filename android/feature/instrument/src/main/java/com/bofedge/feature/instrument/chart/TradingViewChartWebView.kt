@@ -12,21 +12,32 @@ import org.json.JSONObject
 
 /**
  * TradingView lightweight-charts rendered in a WebView over a bundled local
- * asset (offline-safe). Candle + indicator data crosses the bridge as one
- * JSON payload whenever the inputs change; all indicator math lives in JS.
+ * asset (offline-safe). Candle + indicator + pattern data crosses the bridge
+ * as a JSON payload whenever inputs change; all indicator/pattern math lives in JS.
+ * 
+ * Architecture:
+ * Kotlin  →  JSON serialization  →  WebView  →  Lightweight Charts JS  →  Render
+ * 
+ * Bridge carries: candles, sma20/ema9/bb/rsi, detected patterns, markers, timeframe, symbol
+ * JavaScript → Kotlin: chart ready, crosshair changes, visible range changes (optional)
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun TradingViewChartWebView(
     candles: List<Candle>,
-    showSma20: Boolean,
-    showEma9: Boolean,
-    showBb: Boolean,
-    showRsi: Boolean,
+    timeframe: String = "1D",
+    symbol: String = "",
+    showSma20: Boolean = false,
+    showEma9: Boolean = false,
+    showBb: Boolean = false,
+    showRsi: Boolean = false,
+    indicators: List<String> = emptyList(),
+    patternNames: List<String> = emptyList(),
+    markers: List<Map<String, Any>> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
-    val payload = remember(candles, showSma20, showEma9, showBb, showRsi) {
-        buildPayload(candles, showSma20, showEma9, showBb, showRsi)
+    val payload = remember(candles, timeframe, symbol, showSma20, showEma9, showBb, showRsi, indicators, patternNames, markers) {
+        buildPayload(candles, timeframe, symbol, showSma20, showEma9, showBb, showRsi, indicators, patternNames, markers)
     }
 
     AndroidView(
@@ -45,27 +56,73 @@ fun TradingViewChartWebView(
     )
 }
 
+/** Build the full JSON payload for the TradingView Lightweight Charts bridge.
+ *  All indicator/pattern math lives in the JS layer; this payload is the
+ *  serialized form of Kotlin-side data that JS consumes.
+ */
 private fun buildPayload(
     candles: List<Candle>,
-    sma20: Boolean, ema9: Boolean, bb: Boolean, rsi: Boolean,
+    timeframe: String,
+    symbol: String,
+    sma20: Boolean,
+    ema9: Boolean,
+    bb: Boolean,
+    rsi: Boolean,
+    indicators: List<String>,
+    patternNames: List<String>,
+    markers: List<Map<String, Any>>,
 ): String {
-    val arr = JSONArray()
-    for (c in candles.asReversed()) {           // newest-first DB order → oldest-first for LWC
-        arr.put(
-            JSONObject()
-                .put("time", c.timeMillis / 1000L)
-                .put("open", c.open)
-                .put("high", c.high)
-                .put("low", c.low)
-                .put("close", c.close)
-                .put("volume", c.volume),
-        )
+    // 1. Candle data (newest-first DB order → oldest-first for LWC)
+    val candleArr = JSONArray()
+    for (c in candles.asReversed()) {
+        val obj = JSONObject()
+        obj.put("time", c.timeMillis / 1000L)
+        obj.put("open", c.open)
+        obj.put("high", c.high)
+        obj.put("low", c.low)
+        obj.put("close", c.close)
+        obj.put("volume", c.volume)
+        candleArr.put(obj)
     }
-    return JSONObject()
-        .put("candles", arr)
-        .put("sma20", sma20)
-        .put("ema9", ema9)
-        .put("bb", bb)
-        .put("rsi", rsi)
-        .toString()
+
+    // 2. Indicator values (SMA, EMA, BB, RSI) - passed as boolean flags;
+    // actual values computed in JS
+    val indicatorFlags = JSONObject().apply {
+        put("sma20", sma20)
+        put("ema9", ema9)
+        put("bb", bb)
+        put("rsi", rsi)
+    }
+
+    // 3. Detected patterns from Kotlin engine (names only; JS can recompute or use as reference)
+    val patternsArr = JSONArray()
+    patternNames.forEach { patternsArr.put(it) }
+
+    // 4. Markers (price levels, pattern start/end points, etc.)
+    val markersArr = JSONArray()
+    markers.forEach { marker ->
+        val mObj = JSONObject()
+        marker.keys.asSequence().forEach { key ->
+            val value = marker[key]
+            when (value) {
+                is Long -> mObj.put(key, value)
+                is Double -> mObj.put(key, value)
+                is String -> mObj.put(key, value)
+                is Boolean -> mObj.put(key, value)
+                else -> mObj.put(key, value.toString())
+            }
+        }
+        markersArr.put(mObj)
+    }
+
+    // 5. Full payload object
+    return JSONObject().apply {
+        put("candles", candleArr)
+        put("timeframe", timeframe)
+        put("symbol", symbol)
+        put("indicators", indicatorFlags)
+        put("patterns", patternsArr)
+        put("markers", markersArr)
+        put("version", "lwc-android-bridge-1.0")
+    }.toString()
 }

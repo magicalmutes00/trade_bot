@@ -90,7 +90,7 @@ data class UpdateWatchlistItemRequestDto(
 
 @Serializable
 data class CandleDto(
-    @SerialName("timeframe") val timeframe: String = "15m",
+    @SerialName("timeframe") val timeframe: String = "1D",
     @SerialName("ts") val ts: String,
     @SerialName("open") val open: String,
     @SerialName("high") val high: String,

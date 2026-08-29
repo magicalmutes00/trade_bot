@@ -7,11 +7,12 @@ import com.bofedge.data.remote.dto.InstrumentDetailDto
 import com.bofedge.data.remote.dto.InstrumentDto
 import com.bofedge.data.remote.dto.PageDto
 import com.bofedge.data.remote.dto.UserDto
+import com.bofedge.domain.model.Timeframe
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
-import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.PATCH
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -59,7 +60,7 @@ interface BofApi {
     @GET("instruments/{id}/candles")
     suspend fun candles(
         @Path("id") id: String,
-        @Query("timeframe") timeframe: String = "15m",
+        @Query("timeframe") timeframe: Timeframe = Timeframe.DAILY,
         @Query("limit") limit: Int = 200,
     ): ApiResponseDto<com.bofedge.data.remote.dto.PaginatedCandlesDto>
 

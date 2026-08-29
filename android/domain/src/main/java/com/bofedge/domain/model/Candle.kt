@@ -8,6 +8,7 @@ data class Candle(
     val low: Double,
     val close: Double,
     val volume: Long,
+    val timeframe: Timeframe = Timeframe.DAILY,
 ) {
     val isBullish: Boolean get() = close >= open
 }

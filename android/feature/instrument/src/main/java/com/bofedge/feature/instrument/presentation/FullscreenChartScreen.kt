@@ -24,8 +24,12 @@ import com.bofedge.feature.instrument.chart.CandleChartMath
 import com.bofedge.feature.instrument.chart.KiteStyleChart
 import com.bofedge.feature.instrument.chart.TradingViewChartWebView
 
-/** Every interval the backend serves (backend Timeframe enum). */
-private val CHART_TIMEFRAMES = listOf("1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W")
+import com.bofedge.domain.model.InstrumentDetail
+import com.bofedge.domain.model.Timeframe
+import com.bofedge.feature.instrument.presentation.InstrumentDetailUiState
+
+/** Every interval the backend serves. */
+private val CHART_TIMEFRAMES = listOf(Timeframe.DAILY, Timeframe.WEEKLY, Timeframe.MONTHLY)
 
 @Composable
 fun FullscreenChartScreen(
@@ -76,26 +80,26 @@ fun FullscreenChartScreen(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color(0xFFEAF0F6))
             }
 
-            when (val s = detailState) {
-                is InstrumentDetailUiState.Ready -> {
-                    Column(Modifier.weight(1f)) {
-                        Text(s.detail.symbol, fontWeight = FontWeight.Bold,
-                             color = Color(0xFFEAF0F6))
-                        s.detail.quote?.lastPrice?.let {
-                            Text("₹%.2f".format(it), color = Color(0xFF16C784),
-                                 style = MaterialTheme.typography.bodyMedium)
-                        }
+            if (detailState is InstrumentDetailUiState.Ready) {
+                val d = detailState as InstrumentDetailUiState.Ready
+                Column(Modifier.weight(1f)) {
+                    Text(d.detail.symbol, fontWeight = FontWeight.Bold,
+                         color = Color(0xFFEAF0F6))
+                    d.detail.quote?.lastPrice?.let {
+                        Text("₹%.2f".format(it), color = Color(0xFF16C784),
+                             style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-                else -> Text("Loading…", color = Color(0xFF8A97A8),
-                             modifier = Modifier.weight(1f))
+            } else {
+                Text("Loading…", color = Color(0xFF8A97A8),
+                     modifier = Modifier.weight(1f))
             }
 
             ChartDropdown(
-                label = candleState.timeframe,
+                label = candleState.timeframe.toString(),
                 items = CHART_TIMEFRAMES,
                 selectedItem = candleState.timeframe,
-                itemLabel = { it },
+                itemLabel = { it.toString() },
                 isSelected = { it == candleState.timeframe },
                 onSelect = { tf -> viewModel.onTimeframeChange(tf) },
             )

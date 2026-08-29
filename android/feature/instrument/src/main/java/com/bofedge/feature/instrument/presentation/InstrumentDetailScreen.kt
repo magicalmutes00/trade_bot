@@ -20,7 +20,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.bofedge.core.ui.components.EmptyState
 import com.bofedge.domain.model.Candle
+import com.bofedge.domain.model.CandlestickPattern
+import com.bofedge.domain.model.ChartPattern
 import com.bofedge.domain.model.InstrumentDetail
+import com.bofedge.domain.model.MarketStructure
+import com.bofedge.domain.model.PatternDirection
+import com.bofedge.domain.model.RiskRewardEngine
+import com.bofedge.domain.model.RiskRewardResult
+import com.bofedge.domain.model.Timeframe
 import com.bofedge.domain.repository.InstrumentRepository
 import com.bofedge.domain.result.ApiResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -32,10 +39,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import com.bofedge.feature.instrument.chart.CandleChartMath
 import com.bofedge.feature.instrument.chart.KiteStyleChart
+import com.bofedge.feature.instrument.chart.TradingViewChartWebView
 
 // ═══════════════════════════════════════════════════════════════════════
 //  ViewModel
-// ═══════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════
 
 sealed class InstrumentDetailUiState {
     data object Loading : InstrumentDetailUiState()
@@ -45,10 +53,21 @@ sealed class InstrumentDetailUiState {
 
 data class CandlesUiState(
     val loading: Boolean = false,
-    val timeframe: String = "15m",
+    val timeframe: Timeframe = Timeframe.DAILY,
     val candles: List<Candle> = emptyList(),
     val error: String? = null,
 )
+
+data class InstrumentDetailState(
+    val uiState: InstrumentDetailUiState = InstrumentDetailUiState.Loading,
+    val candles: CandlesUiState = CandlesUiState(),
+    val marketStructure: MarketStructure? = null,
+    val candlestickPatterns: List<CandlestickPattern>? = null,
+    val chartPattern: ChartPattern? = null,
+    val riskReward: RiskRewardResult? = null,
+)
+
+// ════════════════════════════════════════════════════════════════════════
 
 @HiltViewModel
 class InstrumentDetailViewModel @Inject constructor(
@@ -66,9 +85,38 @@ class InstrumentDetailViewModel @Inject constructor(
     private val _candles = MutableStateFlow(CandlesUiState(loading = true))
     val candles: StateFlow<CandlesUiState> = _candles.asStateFlow()
 
+    // New state for analysis engines
+    private val _marketStructure = MutableStateFlow<MarketStructure?>(null)
+    val marketState: StateFlow<MarketStructure?> = _marketStructure.asStateFlow()
+
+    private val _candlestickPatterns = MutableStateFlow<List<CandlestickPattern>?>(null)
+    val candlestickPatternState: StateFlow<List<CandlestickPattern>?> = _candlestickPatterns.asStateFlow()
+
+    private val _chartPatterns = MutableStateFlow<List<ChartPattern>?>(null)
+    val chartPatternState: StateFlow<List<ChartPattern>?> = _chartPatterns.asStateFlow()
+
+    private val _riskReward = MutableStateFlow<RiskRewardResult?>(null)
+    val riskRewardState: StateFlow<RiskRewardResult?> = _riskReward.asStateFlow()
+
     init {
         load()
         loadCandles()
+        viewModelScope.launch { loadAllAnalysis() }
+    }
+
+    private fun loadAllAnalysis() = viewModelScope.launch {
+        when (val ms = repository.marketStructure(instrumentId, _candles.value.timeframe)) {
+            is ApiResult.Success -> _marketStructure.value = ms.value
+            else -> {}
+        }
+        when (val cp = repository.candlestickPatterns(instrumentId, _candles.value.timeframe)) {
+            is ApiResult.Success -> _candlestickPatterns.value = cp.value
+            else -> {}
+        }
+        when (val cp = repository.chartPatterns(instrumentId, _candles.value.timeframe)) {
+            is ApiResult.Success -> _chartPatterns.value = cp.value
+            else -> {}
+        }
     }
 
     fun load() {
@@ -84,10 +132,11 @@ class InstrumentDetailViewModel @Inject constructor(
         }
     }
 
-    fun onTimeframeChange(timeframe: String) {
+    fun onTimeframeChange(timeframe: Timeframe) {
         if (_candles.value.timeframe == timeframe) return
         _candles.value = CandlesUiState(timeframe = timeframe, loading = true)
         loadCandlesInternal()
+        viewModelScope.launch { loadAllAnalysis() }
     }
 
     fun loadCandles() = loadCandlesInternal()
@@ -125,6 +174,10 @@ fun InstrumentDetailRoute(
 ) {
     val detailState by viewModel.state.collectAsStateWithLifecycle()
     val candleState by viewModel.candles.collectAsStateWithLifecycle()
+    val marketState by viewModel.marketState.collectAsStateWithLifecycle()
+    val cpatternState by viewModel.candlestickPatternState.collectAsStateWithLifecycle()
+    val chartState by viewModel.chartPatternState.collectAsStateWithLifecycle()
+    val rrState by viewModel.riskRewardState.collectAsStateWithLifecycle()
 
     val symbol = (detailState as? InstrumentDetailUiState.Ready)?.detail?.symbol ?: ""
 
@@ -142,6 +195,10 @@ fun InstrumentDetailRoute(
         is InstrumentDetailUiState.Ready -> InstrumentDetailContent(
             detail = s.detail,
             candleState = candleState,
+            marketState = marketState,
+            cpatternState = cpatternState,
+            chartState = chartState,
+            rrState = rrState,
             onTimeframeChange = viewModel::onTimeframeChange,
             onRetryCandles = viewModel::loadCandles,
             onOpenFullscreen = { onOpenFullscreen(viewModel.instrumentId, symbol) },
@@ -153,13 +210,17 @@ fun InstrumentDetailRoute(
 //  Content
 // ═══════════════════════════════════════════════════════════════════════
 
-private val TIMEFRAMES = listOf("15m", "1h", "4h", "1D")
+private val TIMEFRAMES = listOf(Timeframe.DAILY, Timeframe.WEEKLY, Timeframe.MONTHLY)
 
 @Composable
 private fun InstrumentDetailContent(
     detail: InstrumentDetail,
     candleState: CandlesUiState,
-    onTimeframeChange: (String) -> Unit,
+    marketState: MarketStructure?,
+    cpatternState: List<CandlestickPattern>?,
+    chartState: List<ChartPattern>?,
+    rrState: RiskRewardResult?,
+    onTimeframeChange: (Timeframe) -> Unit,
     onRetryCandles: () -> Unit,
     onOpenFullscreen: () -> Unit,
 ) {
@@ -181,12 +242,12 @@ private fun InstrumentDetailContent(
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 AssistChip(onClick = {}, enabled = false,
-                           label = { Text(detail.exchange) })
+                    label = { Text(detail.exchange) })
                 AssistChip(onClick = {}, enabled = false,
-                           label = { Text(detail.type.lowercase()) })
+                    label = { Text(detail.type.lowercase()) })
                 detail.sectorName?.let {
                     AssistChip(onClick = {}, enabled = false,
-                               label = { Text(it, maxLines = 1) })
+                        label = { Text(it, maxLines = 1) })
                 }
             }
         }
@@ -217,8 +278,8 @@ private fun InstrumentDetailContent(
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             TIMEFRAMES.forEach { tf ->
                 FilterChip(selected = selectedTf == tf,
-                           onClick = { selectedTf = tf; onTimeframeChange(tf) },
-                           label = { Text(tf) })
+                    onClick = { selectedTf = tf; onTimeframeChange(tf) },
+                    label = { Text(tf.code) })
             }
         }
 
@@ -229,16 +290,16 @@ private fun InstrumentDetailContent(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             FilterChip(showSma20, { showSma20 = !showSma20 },
-                       label = { Text("MA20") })
+                label = { Text("MA20") })
             FilterChip(showEma9, { showEma9 = !showEma9 },
-                       label = { Text("EMA9") })
+                label = { Text("EMA9") })
             FilterChip(showBb, { showBb = !showBb }, label = { Text("BB") })
             FilterChip(showRsi, { showRsi = !showRsi }, label = { Text("RSI") })
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onOpenFullscreen, Modifier.size(28.dp)) {
                 Icon(Icons.Filled.OpenInFull, "Fullscreen",
-                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                     modifier = Modifier.size(18.dp))
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp))
             }
         }
 
@@ -246,8 +307,8 @@ private fun InstrumentDetailContent(
 
         // ── Chart card ──
         Card(colors = CardDefaults.cardColors(
-                 containerColor = MaterialTheme.colorScheme.surface),
-             modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
+             containerColor = MaterialTheme.colorScheme.surface),
+         modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
             Column(Modifier.padding(vertical = 10.dp, horizontal = 6.dp)) {
                 when {
                     candleState.loading -> Box(
@@ -287,30 +348,96 @@ private fun InstrumentDetailContent(
 
         Spacer(Modifier.height(12.dp))
 
-        // ── Signal stats ──
-        Card(colors = CardDefaults.cardColors(
-                 containerColor = MaterialTheme.colorScheme.surface),
-             modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Signal history", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(12.dp))
-                val st = detail.stats
-                if (!st.hasAny) {
-                    Text("No signals detected yet.",
-                         style = MaterialTheme.typography.bodyMedium,
-                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-                        StatCell("Total", st.totalSignals)
-                        StatCell("Bullish", st.bullish)
-                        StatCell("Bearish", st.bearish)
+        // ── Market Structure ──
+        if (marketState != null) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, MaterialTheme.colorScheme.outline),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Market Structure", style = MaterialTheme.typography.titleSmall)
+                    Text("Trend: ${marketState.trend.name.toLowerCase()}",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text("Confidence: ${"%.1f".format(marketState.confidence * 100)}%",
+                        style = MaterialTheme.typography.labelSmall)
+                    if (marketState.supportResistance.nearestSupport != null) {
+                        Text("Support: ${"%.2f".format(marketState.supportResistance.nearestSupport)}",
+                            style = MaterialTheme.typography.labelSmall)
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-                        StatCell("Confirmed", st.confirmed)
-                        StatCell("Invalidated", st.invalidated)
-                        Spacer(Modifier.weight(1f))
+                    if (marketState.supportResistance.nearestResistance != null) {
+                        Text("Resistance: ${"%.2f".format(marketState.supportResistance.nearestResistance)}",
+                            style = MaterialTheme.typography.labelSmall)
                     }
+                }
+            }
+        }
+
+        // ── Detected Patterns ──
+        if (cpatternState != null && cpatternState.isNotEmpty()) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, MaterialTheme.colorScheme.outline),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Candlestick Patterns", style = MaterialTheme.typography.titleSmall)
+                    cpatternState.forEach { pattern ->
+                        val dir = when (pattern.direction) {
+                            PatternDirection.BULLISH -> "Bullish"
+                            PatternDirection.BEARISH -> "Bearish"
+                            else -> "Neutral"
+                        }
+                        Text("${pattern.pattern.name.replace("_", " ")} — $dir (${"%.0f".format(pattern.confidence * 100)}%)",
+                            style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+
+// ── Chart Patterns ──
+        if (chartState != null && chartState.isNotEmpty()) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, MaterialTheme.colorScheme.outline),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Chart Patterns", style = MaterialTheme.typography.titleSmall)
+                    chartState.forEach { cp ->
+                        Text("${cp.name.name.replace("_", " ")} — ${cp.direction.name} (${"%.0f".format(cp.confidence * 100)}%)",
+                            style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+
+        // ── Risk / Reward ──
+        if (rrState != null) {
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp, MaterialTheme.colorScheme.outline),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Risk / Reward", style = MaterialTheme.typography.titleSmall)
+                    Text("Entry: ${"%.2f".format(rrState.entry)}",
+                        style = MaterialTheme.typography.labelSmall)
+                    Text("Stop Loss: ${"%.2f".format(rrState.stopLoss)}",
+                        style = MaterialTheme.typography.labelSmall)
+                    Text("Target: ${"%.2f".format(rrState.target)}",
+                        style = MaterialTheme.typography.labelSmall)
+                    Text("Risk: ${"%.2f".format(rrState.risk)}",
+                        style = MaterialTheme.typography.labelSmall)
+                    Text("Reward: ${"%.2f".format(rrState.reward)}",
+                        style = MaterialTheme.typography.labelSmall)
+                    Text("R:R ${RiskRewardEngine.formatRatio(rrState.riskRewardRatio)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

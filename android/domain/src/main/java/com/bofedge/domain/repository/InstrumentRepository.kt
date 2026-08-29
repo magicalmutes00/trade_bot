@@ -1,12 +1,16 @@
 package com.bofedge.domain.repository
 
 import com.bofedge.domain.model.Candle
+import com.bofedge.domain.model.CandlestickPattern
+import com.bofedge.domain.model.ChartPattern
 import com.bofedge.domain.model.DashboardSnapshot
 import com.bofedge.domain.model.HeatmapGroup
 import com.bofedge.domain.model.Instrument
 import com.bofedge.domain.model.InstrumentDetail
+import com.bofedge.domain.model.MarketStructure
 import com.bofedge.domain.model.PageResult
 import com.bofedge.domain.model.SignalStatsDetailed
+import com.bofedge.domain.model.Timeframe
 import com.bofedge.domain.result.ApiResult
 
 /** Scanner sorts supported by the backend in Phase 2. */
@@ -40,6 +44,15 @@ interface InstrumentRepository {
     /** Phase 5 — detailed signal statistics for one instrument. */
     suspend fun signalStats(id: String): ApiResult<SignalStatsDetailed>
 
-    /** Phase 3 endpoint, consumed from Phase 5 UI — OHLCV bars newest-last. */
-    suspend fun candles(id: String, timeframe: String, limit: Int = 200): ApiResult<List<Candle>>
+    /** Phase 10 — candlestick pattern detection. */
+    suspend fun candlestickPatterns(id: String, timeframe: Timeframe): ApiResult<List<CandlestickPattern>>
+
+    /** Phase 10 — chart pattern detection. */
+    suspend fun chartPatterns(id: String, timeframe: Timeframe): ApiResult<List<ChartPattern>>
+
+    /** Phase 9 — market structure analysis (HH/HL/LH/LL). */
+    suspend fun marketStructure(id: String, timeframe: Timeframe, lookback: Int = 5): ApiResult<MarketStructure>
+
+    /** Phase 3 endpoint, consumed from Phase 7 UI — OHLCV bars newest-last. */
+    suspend fun candles(id: String, timeframe: Timeframe, limit: Int = 200): ApiResult<List<Candle>>
 }

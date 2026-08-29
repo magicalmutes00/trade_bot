@@ -5,6 +5,10 @@ import com.bofedge.data.remote.dto.InstrumentDetailDto
 import com.bofedge.data.remote.dto.InstrumentDto
 import com.bofedge.domain.model.BofSummary
 import com.bofedge.domain.model.Candle
+import com.bofedge.domain.model.ChartPattern
+import com.bofedge.domain.model.ChartPatternEngine
+import com.bofedge.domain.model.CandlestickPattern
+import com.bofedge.domain.model.CandlestickPatternEngine
 import com.bofedge.domain.model.DashboardSnapshot
 import com.bofedge.domain.model.HeatmapCell
 import com.bofedge.domain.model.HeatmapGroup
@@ -13,10 +17,14 @@ import com.bofedge.domain.model.Instrument
 import com.bofedge.domain.model.InstrumentDetail
 import com.bofedge.domain.model.InstrumentQuote
 import com.bofedge.domain.model.MarketStatusInfo
+import com.bofedge.domain.model.MarketStructure
+import com.bofedge.domain.model.MarketStructureEngine
 import com.bofedge.domain.model.PageResult
 import com.bofedge.domain.model.SignalCard
 import com.bofedge.domain.model.SignalStats
 import com.bofedge.domain.model.SignalStatsDetailed
+import com.bofedge.domain.model.SwingDetectionConfig
+import com.bofedge.domain.model.Timeframe
 import com.bofedge.domain.repository.InstrumentRepository
 import com.bofedge.domain.repository.InstrumentSort
 import com.bofedge.domain.result.ApiResult
@@ -61,7 +69,7 @@ class InstrumentRepositoryImpl @Inject constructor(
                 newToday = d.bofSummary.newToday,
                 detectedToday = d.bofSummary.detectedToday,
             ),
-            indices = d.indices.map {
+indices = d.indices.map {
                 IndexQuote(it.instrumentId, it.symbol, it.name, it.lastPrice, it.changePct, it.direction)
             },
             latestSignals = d.latestSignals.map { it.toCard() },
@@ -111,7 +119,31 @@ class InstrumentRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun candles(id: String, timeframe: String, limit: Int): ApiResult<List<Candle>> = guarded {
+    private suspend fun fetchCandles(id: String, timeframe: Timeframe, limit: Int): List<Candle> {
+        val result = candles(id, timeframe, limit)
+        return when (result) {
+            is ApiResult.Success -> result.value
+            is ApiResult.HttpError -> throw HttpEnvelopeException(result.code, result.message)
+            is ApiResult.Offline -> throw IOException("Offline")
+        }
+    }
+
+    override suspend fun candlestickPatterns(id: String, timeframe: Timeframe): ApiResult<List<CandlestickPattern>> = guarded {
+        val candleList = fetchCandles(id, timeframe, 200)
+        CandlestickPatternEngine.detectPatterns(candleList)
+    }
+
+    override suspend fun chartPatterns(id: String, timeframe: Timeframe): ApiResult<List<ChartPattern>> = guarded {
+        val candleList = fetchCandles(id, timeframe, 200)
+        ChartPatternEngine.detectPatterns(candleList)
+    }
+
+    override suspend fun marketStructure(id: String, timeframe: Timeframe, lookback: Int): ApiResult<MarketStructure> = guarded {
+        val candleList = fetchCandles(id, timeframe, 200)
+        MarketStructureEngine.analyze(candleList, SwingDetectionConfig(swingLookback = lookback))
+    }
+
+    override suspend fun candles(id: String, timeframe: Timeframe, limit: Int): ApiResult<List<Candle>> = guarded {
         val page = requireData(api.candles(id, timeframe, limit))
         // Backend returns newest-first; charts draw oldest→newest (left→right).
         page.items
@@ -126,6 +158,7 @@ class InstrumentRepositoryImpl @Inject constructor(
                     low = dto.low.toDoubleOrNull() ?: 0.0,
                     close = dto.close.toDoubleOrNull() ?: 0.0,
                     volume = dto.volume ?: 0L,
+                    timeframe = timeframe,
                 )
             }
             .sortedBy { it.timeMillis }

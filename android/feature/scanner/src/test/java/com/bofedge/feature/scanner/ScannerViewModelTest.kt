@@ -1,11 +1,11 @@
 ﻿package com.bofedge.feature.scanner
 
-import com.bofedge.domain.model.Instrument
+import com.bofedge.domain.model.Candle
 import com.bofedge.domain.model.PageResult
+import com.bofedge.domain.model.Timeframe
 import com.bofedge.domain.repository.InstrumentRepository
 import com.bofedge.domain.repository.InstrumentSort
 import com.bofedge.domain.result.ApiResult
-import com.bofedge.feature.scanner.presentation.ScannerViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -51,7 +51,7 @@ private class FakeRepo : InstrumentRepository {
     override suspend fun signalStats(id: String): ApiResult<com.bofedge.domain.model.SignalStatsDetailed> =
         error("not used in scanner tests")
 
-    override suspend fun candles(id: String, timeframe: String, limit: Int): ApiResult<List<com.bofedge.domain.model.Candle>> =
+    override suspend fun candles(id: String, timeframe: Timeframe, limit: Int): ApiResult<List<com.bofedge.domain.model.Candle>> =
         error("not used in scanner tests")
 }
 
@@ -123,4 +123,3 @@ class ScannerViewModelTest {
         assertEquals(before + 1, repo.searches.size)
     }
 }
-
