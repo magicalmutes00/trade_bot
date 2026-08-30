@@ -15,6 +15,7 @@ from app.schemas.instrument import (
     PaginatedCandles,
     PaginatedInstruments,
 )
+from app.schemas.pattern import InstrumentPatterns
 from app.schemas.signal import PaginatedSignals, SignalResponse
 from app.services.instrument_service import (
     InstrumentService,
@@ -149,3 +150,54 @@ async def get_instrument_signals(
     )
     items = [_signal_to_response(s, i) for s, i in rows]
     return ok(PaginatedSignals(items=items, total=total, limit=limit, offset=offset))
+
+
+@router.get(
+    "/{instrument_id}/patterns",
+    response_model=ApiResponse[InstrumentPatterns],
+    summary="Chart pattern state per timeframe (TRADEBOT spec §35 shape)",
+    description=(
+        "Runs the strict pattern engine on stored candles for the requested "
+        "timeframes (default: the mandatory 4H and 1D), persists the latest "
+        "hits as PATTERN signals, and returns per-timeframe spec-§35 JSON "
+        "(pattern_detected/status/confidence/entry/stop_loss/targets/"
+        "invalidation/reasoning)."
+    ),
+)
+async def get_instrument_patterns(
+    instrument_id: str,
+    db: DbSession,
+    timeframe: Annotated[str | None, Query(
+        description="Single timeframe to scan (15m | 1h | 4h | 1D | 1W). Default: all stored mandatory TFs."
+    )] = None,
+    bars: int = Query(default=250, ge=30, le=500),
+) -> ApiResponse[InstrumentPatterns]:
+    from datetime import datetime, timezone
+
+    from app.services.pattern_service import (
+        SCAN_TIMEFRAMES,
+        analyzed_to_response,
+        empty_response,
+        sync_instrument,
+    )
+
+    iid = parse_uuid(instrument_id, "instrument_id")
+    instrument = await InstrumentService(db).get_detail(iid)  # 404 if unknown
+    timeframes = (parse_timeframe(timeframe),) if timeframe else SCAN_TIMEFRAMES
+
+    responses = []
+    for tf in timeframes:
+        analyzed, _ = await sync_instrument(db, instrument_id=iid, timeframe=tf, bars=bars)
+        if analyzed:
+            responses.extend(analyzed_to_response(ap) for ap in analyzed)
+        else:
+            responses.append(empty_response(tf))
+    await db.commit()
+
+    return ok(InstrumentPatterns(
+        instrument_id=iid,
+        symbol=instrument.symbol,
+        name=instrument.name,
+        scanned_at=datetime.now(timezone.utc),
+        timeframes=responses,
+    ))

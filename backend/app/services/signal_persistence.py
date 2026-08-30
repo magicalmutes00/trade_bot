@@ -6,7 +6,9 @@ Two execution paths, identical semantics:
 
 Idempotency keys:
     candles  → (instrument_id, timeframe, ts)
-    signals  → (instrument_id, timeframe, detected_at)   # breakout bar
+    signals  → (instrument_id, timeframe, signal_type, detected_at)  # trigger bar
+The signal_type is part of the key so BOF and PATTERN families can share a
+trigger bar without colliding.
 Status convergence rule: CONFIRMED never regresses to DETECTING.
 Timestamp comparison keys are normalised because SQLite round-trips naive
 datetimes while PostgreSQL keeps timestamptz.
@@ -154,16 +156,18 @@ async def persist_signals(db: AsyncSession, signals: list[EngineSignal]) -> dict
         return stats
 
     tf = Timeframe(signals[0].timeframe)
+    stype = signals[0].signal_type
 
     existing_rows = (
         await db.execute(
             select(Signal).where(
                 Signal.instrument_id == signals[0].instrument_id,
                 Signal.timeframe == tf,
+                Signal.signal_type == stype,
             )
         )
     ).scalars().all()
-    by_key = {_norm_ts(r.detected_at): r for r in existing_rows}
+    by_key = {(r.signal_type, _norm_ts(r.detected_at)): r for r in existing_rows}
 
     pending_events: list[tuple[uuid.UUID | None, list[str], dict]] = []
     new_rows: list[Signal] = []
@@ -175,13 +179,13 @@ async def persist_signals(db: AsyncSession, signals: list[EngineSignal]) -> dict
         elif s.status.startswith("INVALIDATED"):
             wanted.append("INVALIDATED")
 
-        existing = by_key.get(_norm_ts(s.detected_at))
+        existing = by_key.get((s.signal_type, _norm_ts(s.detected_at)))
 
         if existing is None:
             row = Signal(
                 instrument_id=s.instrument_id,
                 timeframe=tf,
-                signal_type="BOF",
+                signal_type=s.signal_type,
                 direction=s.direction,
                 bof_level=s.bof_level,
                 breakout_price=s.breakout_price,

@@ -1,6 +1,7 @@
 ﻿package com.bofedge.feature.scanner
 
 import com.bofedge.domain.model.Candle
+import com.bofedge.domain.model.Instrument
 import com.bofedge.domain.model.PageResult
 import com.bofedge.domain.model.Timeframe
 import com.bofedge.domain.repository.InstrumentRepository
@@ -53,6 +54,22 @@ private class FakeRepo : InstrumentRepository {
 
     override suspend fun candles(id: String, timeframe: Timeframe, limit: Int): ApiResult<List<com.bofedge.domain.model.Candle>> =
         error("not used in scanner tests")
+
+    override suspend fun candlestickPatterns(
+        id: String, timeframe: Timeframe,
+    ): ApiResult<List<com.bofedge.domain.model.CandlestickPattern>> = error("not used in scanner tests")
+
+    override suspend fun chartPatterns(
+        id: String, timeframe: Timeframe,
+    ): ApiResult<List<com.bofedge.domain.model.ChartPattern>> = error("not used in scanner tests")
+
+    override suspend fun marketStructure(
+        id: String, timeframe: Timeframe, lookback: Int,
+    ): ApiResult<com.bofedge.domain.model.MarketStructure> = error("not used in scanner tests")
+
+    override suspend fun patternSignals(
+        id: String, timeframe: Timeframe?,
+    ): ApiResult<List<com.bofedge.domain.model.TradePattern>> = error("not used in scanner tests")
 }
 
 private class FakeWatchlists : com.bofedge.domain.repository.WatchlistRepository {

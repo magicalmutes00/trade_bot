@@ -20,64 +20,8 @@
 <script>
 const UP = '#16C784', DOWN = '#EA3943', GRID = '#1A2230', TEXT = '#8A97A8',
       BG = '#0B0F14', ACCENT = '#4E9CFF';
-let chart = null, candleS = null, volS = null,
-    smaS = null, emaS = null, buS = null, blS = null, rsiS = null,
-    lastBar = null;
+let chart = null, candleS = null, volS = null, lastBar = null;
 
-function sma(vals, p) {
-  const out = []; let sum = 0;
-  for (let i = 0; i < vals.length; i++) {
-    sum += vals[i];
-    if (i >= p) sum -= vals[i - p];
-    out.push(i >= p - 1 ? sum / p : null);
-  }
-  return out;
-}
-function ema(vals, p) {
-  const out = [], k = 2 / (p + 1); let prev = null;
-  for (let i = 0; i < vals.length; i++) {
-    if (i < p - 1) { out.push(null); continue; }
-    if (prev === null) {
-      let s = 0; for (let j = i - p + 1; j <= i; j++) s += vals[j];
-      prev = s / p;
-    } else prev = vals[i] * k + prev * (1 - k);
-    out.push(prev);
-  }
-  return out;
-}
-function bollinger(vals, p = 20, m = 2) {
-  const up = [], lo = [];
-  for (let i = 0; i < vals.length; i++) {
-    if (i < p - 1) { up.push(null); lo.push(null); continue; }
-    const w = vals.slice(i - p + 1, i + 1);
-    const mean = w.reduce((a, b) => a + b, 0) / p;
-    const sd = Math.sqrt(w.reduce((a, b) => a + (b - mean) ** 2, 0) / p);
-    up.push(mean + m * sd); lo.push(mean - m * sd);
-  }
-  return { up, lo };
-}
-function rsi(closes, p = 14) {
-  const out = closes.map(() => null);
-  if (closes.length <= p) return out;
-  let g = 0, l = 0;
-  for (let i = 1; i <= p; i++) { const c = closes[i] - closes[i - 1]; if (c > 0) g += c; else l -= c; }
-  g /= p; l /= p;
-  const val = (gn, ls) => (ls === 0 && gn === 0 ? 50 : ls === 0 ? 100 : 100 - 100 / (1 + gn / ls));
-  out[p] = val(g, l);
-  for (let i = p + 1; i < closes.length; i++) {
-    const c = closes[i] - closes[i - 1];
-    g = (g * (p - 1) + Math.max(c, 0)) / p;
-    l = (l * (p - 1) + Math.max(-c, 0)) / p;
-    out[i] = val(g, l);
-  }
-  return out;
-}
-function lineData(times, vals) {
-  const out = [];
-  for (let i = 0; i < times.length; i++)
-    if (vals[i] !== null && vals[i] !== undefined) out.push({ time: times[i], value: vals[i] });
-  return out;
-}
 function fmtLegend(el, o, h, l, c, v, pct, hover) {
   const col = c >= o ? UP : DOWN;
   const s = pct === null ? '' : ' ' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
@@ -108,10 +52,6 @@ function init() {
     priceScaleId: '', lastValueVisible: false, priceLineVisible: false,
   });
   volS.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-  smaS = chart.addSeries(LightweightCharts.LineSeries, { color: '#FF9800', lineWidth: 2, title: 'SMA20', visible: false });
-  emaS = chart.addSeries(LightweightCharts.LineSeries, { color: '#E040FB', lineWidth: 2, title: 'EMA9', visible: false });
-  buS = chart.addSeries(LightweightCharts.LineSeries, { color: 'rgba(78,156,255,.55)', lineWidth: 1, lineStyle: 2, title: 'BB\u2191', visible: false });
-  blS = chart.addSeries(LightweightCharts.LineSeries, { color: 'rgba(78,156,255,.55)', lineWidth: 1, lineStyle: 2, title: 'BB\u2193', visible: false });
 
   const legendEl = document.getElementById('legend');
   chart.subscribeCrosshairMove((param) => {
@@ -124,6 +64,15 @@ function init() {
       fmtLegend(legendEl, lastBar.o, lastBar.h, lastBar.l, lastBar.c, lastBar.v, lastBar.pct, false);
     }
   });
+}
+
+let priceLines = [];
+
+function clearOverlays() {
+  if (candleS && priceLines.length) {
+    for (const l of priceLines) { try { candleS.removePriceLine(l); } catch (e) {} }
+    priceLines = [];
+  }
 }
 
 window.updateChart = function (json) {
@@ -142,30 +91,30 @@ window.updateChart = function (json) {
   candleS.setData(bars);
   volS.setData(vols);
 
-  const times = bars.map((b) => b.time);
-  const closes = bars.map((b) => b.close);
-  smaS.setData(lineData(times, sma(closes, 20)));
-  emaS.setData(lineData(times, ema(closes, 9)));
-  const bb = bollinger(closes, 20, 2);
-  buS.setData(lineData(times, bb.up));
-  blS.setData(lineData(times, bb.lo));
-  smaS.applyOptions({ visible: !!p.sma20 });
-  emaS.applyOptions({ visible: !!p.ema9 });
-  buS.applyOptions({ visible: !!p.bb });
-  blS.applyOptions({ visible: !!p.bb });
-
-  if (p.rsi) {
-    if (!rsiS) {
-      rsiS = chart.addSeries(LightweightCharts.LineSeries,
-        { color: ACCENT, lineWidth: 2, title: 'RSI14' }, 1);
-      rsiS.createPriceLine({ price: 70, color: TEXT, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' });
-      rsiS.createPriceLine({ price: 30, color: TEXT, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '' });
+  clearOverlays();
+  const markers = [];
+  for (const m of (p.markers || [])) {
+    if (m.kind === 'price-line' && typeof m.price === 'number' && m.price > 0) {
+      const line = candleS.createPriceLine({
+        price: m.price,
+        color: m.color || ACCENT,
+        lineWidth: 1,
+        lineStyle: 2 /* lineStyle.Dashed */,
+        axisLabelVisible: true,
+        title: m.title || '',
+      });
+      priceLines.push(line);
+    } else if (m.kind === 'marker' && typeof m.time === 'number') {
+      markers.push({
+        time: m.time,
+        position: m.position || 'aboveBar',
+        shape: m.shape || 'circle',
+        color: m.color || ACCENT,
+        text: m.text || '',
+      });
     }
-    rsiS.setData(lineData(times, rsi(closes, 14)));
-  } else if (rsiS) {
-    chart.removeSeries(rsiS);
-    rsiS = null;
   }
+  if (markers.length) candleS.setMarkers(markers);
 
   if (bars.length) {
     const last = bars[bars.length - 1];

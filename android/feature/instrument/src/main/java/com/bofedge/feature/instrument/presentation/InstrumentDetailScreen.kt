@@ -28,6 +28,8 @@ import com.bofedge.domain.model.PatternDirection
 import com.bofedge.domain.model.RiskRewardEngine
 import com.bofedge.domain.model.RiskRewardResult
 import com.bofedge.domain.model.Timeframe
+import com.bofedge.domain.model.TradePattern
+import com.bofedge.domain.model.TradePatternStatus
 import com.bofedge.domain.repository.InstrumentRepository
 import com.bofedge.domain.result.ApiResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -37,9 +39,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import com.bofedge.feature.instrument.chart.CandleChartMath
 import com.bofedge.feature.instrument.chart.KiteStyleChart
 import com.bofedge.feature.instrument.chart.TradingViewChartWebView
+import com.bofedge.feature.instrument.chart.toNativeLevels
 
 // ═══════════════════════════════════════════════════════════════════════
 //  ViewModel
@@ -98,6 +100,9 @@ class InstrumentDetailViewModel @Inject constructor(
     private val _riskReward = MutableStateFlow<RiskRewardResult?>(null)
     val riskRewardState: StateFlow<RiskRewardResult?> = _riskReward.asStateFlow()
 
+    private val _tradePatterns = MutableStateFlow<List<TradePattern>?>(null)
+    val tradePatternState: StateFlow<List<TradePattern>?> = _tradePatterns.asStateFlow()
+
     init {
         load()
         loadCandles()
@@ -116,6 +121,11 @@ class InstrumentDetailViewModel @Inject constructor(
         when (val cp = repository.chartPatterns(instrumentId, _candles.value.timeframe)) {
             is ApiResult.Success -> _chartPatterns.value = cp.value
             else -> {}
+        }
+        // Server-side strict patterns (spec §35) — the engine of record.
+        when (val tp = repository.patternSignals(instrumentId, _candles.value.timeframe)) {
+            is ApiResult.Success -> _tradePatterns.value = tp.value
+            else -> _tradePatterns.value = emptyList()
         }
     }
 
@@ -178,6 +188,7 @@ fun InstrumentDetailRoute(
     val cpatternState by viewModel.candlestickPatternState.collectAsStateWithLifecycle()
     val chartState by viewModel.chartPatternState.collectAsStateWithLifecycle()
     val rrState by viewModel.riskRewardState.collectAsStateWithLifecycle()
+    val tradePatternState by viewModel.tradePatternState.collectAsStateWithLifecycle()
 
     val symbol = (detailState as? InstrumentDetailUiState.Ready)?.detail?.symbol ?: ""
 
@@ -199,6 +210,7 @@ fun InstrumentDetailRoute(
             cpatternState = cpatternState,
             chartState = chartState,
             rrState = rrState,
+            tradePatternState = tradePatternState,
             onTimeframeChange = viewModel::onTimeframeChange,
             onRetryCandles = viewModel::loadCandles,
             onOpenFullscreen = { onOpenFullscreen(viewModel.instrumentId, symbol) },
@@ -210,7 +222,7 @@ fun InstrumentDetailRoute(
 //  Content
 // ═══════════════════════════════════════════════════════════════════════
 
-private val TIMEFRAMES = listOf(Timeframe.DAILY, Timeframe.WEEKLY, Timeframe.MONTHLY)
+private val TIMEFRAMES = listOf(Timeframe.H4, Timeframe.DAILY, Timeframe.WEEKLY, Timeframe.MONTHLY)
 
 @Composable
 private fun InstrumentDetailContent(
@@ -220,15 +232,12 @@ private fun InstrumentDetailContent(
     cpatternState: List<CandlestickPattern>?,
     chartState: List<ChartPattern>?,
     rrState: RiskRewardResult?,
+    tradePatternState: List<TradePattern>?,
     onTimeframeChange: (Timeframe) -> Unit,
     onRetryCandles: () -> Unit,
     onOpenFullscreen: () -> Unit,
 ) {
     var selectedTf by rememberSaveable { mutableStateOf(candleState.timeframe) }
-    var showSma20 by rememberSaveable { mutableStateOf(false) }
-    var showEma9 by rememberSaveable { mutableStateOf(false) }
-    var showBb by rememberSaveable { mutableStateOf(false) }
-    var showRsi by rememberSaveable { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -285,17 +294,10 @@ private fun InstrumentDetailContent(
 
         Spacer(Modifier.height(6.dp))
 
-        // ── Indicators + fullscreen button ──
+        // ── Fullscreen button ──
         Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically) {
-            FilterChip(showSma20, { showSma20 = !showSma20 },
-                label = { Text("MA20") })
-            FilterChip(showEma9, { showEma9 = !showEma9 },
-                label = { Text("EMA9") })
-            FilterChip(showBb, { showBb = !showBb }, label = { Text("BB") })
-            FilterChip(showRsi, { showRsi = !showRsi }, label = { Text("RSI") })
-            Spacer(Modifier.weight(1f))
             IconButton(onClick = onOpenFullscreen, Modifier.size(28.dp)) {
                 Icon(Icons.Filled.OpenInFull, "Fullscreen",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -331,20 +333,17 @@ private fun InstrumentDetailContent(
                         val cs = candleState.candles
                         KiteStyleChart(
                             candles = cs,
-                            showSma20 = showSma20,
-                            showEma9 = showEma9,
-                            showBb = showBb,
-                            showRsi = showRsi,
-                            sma20Values = CandleChartMath.sma(cs, 20),
-                            ema9Values = CandleChartMath.ema(cs, 9),
-                            bbUpper = if (showBb) CandleChartMath.bollinger(cs).upper else null,
-                            bbLower = if (showBb) CandleChartMath.bollinger(cs).lower else null,
-                            rsiValues = if (showRsi) CandleChartMath.rsi(cs) else null,
+                            levels = tradePatternState.orEmpty().toNativeLevels(),
                         )
                     }
                 }
             }
         }
+
+        Spacer(Modifier.height(12.dp))
+
+        // ── Pattern Engine (server-side strict patterns, spec §35) ──
+        tradePatternState?.let { PatternEnginePanel(patterns = it, timeframe = candleState.timeframe.code) }
 
         Spacer(Modifier.height(12.dp))
 
@@ -358,7 +357,7 @@ private fun InstrumentDetailContent(
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Market Structure", style = MaterialTheme.typography.titleSmall)
-                    Text("Trend: ${marketState.trend.name.toLowerCase()}",
+                    Text("Trend: ${marketState.trend.name.lowercase()}",
                         style = MaterialTheme.typography.bodyMedium)
                     Text("Confidence: ${"%.1f".format(marketState.confidence * 100)}%",
                         style = MaterialTheme.typography.labelSmall)
@@ -443,6 +442,120 @@ private fun InstrumentDetailContent(
         }
 
         Spacer(Modifier.height(80.dp)) // bottom padding for nav bar clearance
+    }
+}
+
+/** Server-side strict pattern results (TRADEBOT spec §35) for the selected
+ *  timeframe. Shows each hit's status/direction/confidence and the exact
+ *  trade levels the engine emitted. */
+@Composable
+private fun PatternEnginePanel(patterns: List<TradePattern>, timeframe: String) {
+    val valid = patterns.filter { it.hasDetectedPattern }
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Pattern Engine", style = MaterialTheme.typography.titleSmall)
+            Text("$timeframe · strict multi-timeframe analysis",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            Spacer(Modifier.height(8.dp))
+
+            if (valid.isEmpty()) {
+                Text(
+                    "No strict pattern detected on this timeframe. The engine " +
+                        "requires the full rule set (swings, neckline, close " +
+                        "confirmation) to mark a pattern — calm markets stay empty.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                valid.forEach { p ->
+                    TradePatternRow(p)
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TradePatternRow(p: TradePattern) {
+    val statusColor = when (p.status) {
+        TradePatternStatus.FULLY_FORMED -> Color(0xFF2E7D32)   // green
+        TradePatternStatus.FORMING -> Color(0xFFF9A825)        // amber
+        TradePatternStatus.INVALIDATED -> Color(0xFFC62828)    // red
+    }
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(p.patternDetected.replace(" - ", " · "),
+                 style = MaterialTheme.typography.titleSmall,
+                 fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = statusColor.copy(alpha = 0.15f),
+            ) {
+                Text(p.status.wire,
+                     style = MaterialTheme.typography.labelSmall,
+                     color = statusColor,
+                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+            }
+        }
+        Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            DirectionLabel(p)
+            Text("Confidence ${"%.0f".format(p.confidence * 100)}%",
+                 style = MaterialTheme.typography.labelSmall)
+        }
+        val entry = p.entry
+        if (entry != null && entry != "N/A") {
+            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Level("Entry", entry)
+                Level("SL", p.stopLoss ?: "N/A")
+                Level("T1", p.target1 ?: "N/A")
+                Level("T2", p.target2 ?: "N/A")
+                Level("T3", p.target3 ?: "N/A")
+            }
+        }
+        val invalidation = p.invalidation
+        if (invalidation != null && invalidation != "N/A") {
+            Text("Invalidates: $invalidation",
+                 style = MaterialTheme.typography.labelSmall,
+                 color = MaterialTheme.colorScheme.error,
+                 modifier = Modifier.padding(top = 6.dp))
+        }
+        val reasoning = p.reasoning
+        if (!reasoning.isNullOrBlank()) {
+            Text(reasoning,
+                 style = MaterialTheme.typography.bodySmall,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                 modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun DirectionLabel(p: TradePattern) {
+    val (text, color) = when (p.direction) {
+        PatternDirection.BULLISH -> "Bullish" to Color(0xFF2E7D32)
+        PatternDirection.BEARISH -> "Bearish" to Color(0xFFC62828)
+        else -> "Neutral" to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Text(text, style = MaterialTheme.typography.labelSmall, color = color)
+}
+
+@Composable
+private fun Level(label: String, value: String) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelSmall,
+             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.labelSmall,
+             fontWeight = FontWeight.SemiBold)
     }
 }
 

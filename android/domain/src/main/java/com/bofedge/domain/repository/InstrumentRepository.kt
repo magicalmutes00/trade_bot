@@ -11,6 +11,7 @@ import com.bofedge.domain.model.MarketStructure
 import com.bofedge.domain.model.PageResult
 import com.bofedge.domain.model.SignalStatsDetailed
 import com.bofedge.domain.model.Timeframe
+import com.bofedge.domain.model.TradePattern
 import com.bofedge.domain.result.ApiResult
 
 /** Scanner sorts supported by the backend in Phase 2. */
@@ -55,4 +56,11 @@ interface InstrumentRepository {
 
     /** Phase 3 endpoint, consumed from Phase 7 UI — OHLCV bars newest-last. */
     suspend fun candles(id: String, timeframe: Timeframe, limit: Int = 200): ApiResult<List<Candle>>
+
+    /** TRADEBOT strict pattern engine (spec §35). Server scans its own stored
+     *  timeframes; `timeframe` narrows the scan the way the endpoint defines it. */
+    suspend fun patternSignals(
+        id: String,
+        timeframe: Timeframe? = null,
+    ): ApiResult<List<TradePattern>>
 }

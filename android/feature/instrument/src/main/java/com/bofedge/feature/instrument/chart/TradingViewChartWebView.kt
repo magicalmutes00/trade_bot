@@ -12,13 +12,13 @@ import org.json.JSONObject
 
 /**
  * TradingView lightweight-charts rendered in a WebView over a bundled local
- * asset (offline-safe). Candle + indicator + pattern data crosses the bridge
- * as a JSON payload whenever inputs change; all indicator/pattern math lives in JS.
- * 
+ * asset (offline-safe). Candles + pattern data cross the bridge as a JSON
+ * payload whenever inputs change; all pattern math lives in JS.
+ *
  * Architecture:
  * Kotlin  →  JSON serialization  →  WebView  →  Lightweight Charts JS  →  Render
- * 
- * Bridge carries: candles, sma20/ema9/bb/rsi, detected patterns, markers, timeframe, symbol
+ *
+ * Bridge carries: candles, detected patterns, markers, timeframe, symbol
  * JavaScript → Kotlin: chart ready, crosshair changes, visible range changes (optional)
  */
 @SuppressLint("SetJavaScriptEnabled")
@@ -27,17 +27,12 @@ fun TradingViewChartWebView(
     candles: List<Candle>,
     timeframe: String = "1D",
     symbol: String = "",
-    showSma20: Boolean = false,
-    showEma9: Boolean = false,
-    showBb: Boolean = false,
-    showRsi: Boolean = false,
-    indicators: List<String> = emptyList(),
     patternNames: List<String> = emptyList(),
     markers: List<Map<String, Any>> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
-    val payload = remember(candles, timeframe, symbol, showSma20, showEma9, showBb, showRsi, indicators, patternNames, markers) {
-        buildPayload(candles, timeframe, symbol, showSma20, showEma9, showBb, showRsi, indicators, patternNames, markers)
+    val payload = remember(candles, timeframe, symbol, patternNames, markers) {
+        buildPayload(candles, timeframe, symbol, patternNames, markers)
     }
 
     AndroidView(
@@ -57,18 +52,13 @@ fun TradingViewChartWebView(
 }
 
 /** Build the full JSON payload for the TradingView Lightweight Charts bridge.
- *  All indicator/pattern math lives in the JS layer; this payload is the
- *  serialized form of Kotlin-side data that JS consumes.
+ *  All pattern math lives in the JS layer; this payload is the serialized form
+ *  of Kotlin-side data that JS consumes.
  */
 private fun buildPayload(
     candles: List<Candle>,
     timeframe: String,
     symbol: String,
-    sma20: Boolean,
-    ema9: Boolean,
-    bb: Boolean,
-    rsi: Boolean,
-    indicators: List<String>,
     patternNames: List<String>,
     markers: List<Map<String, Any>>,
 ): String {
@@ -85,20 +75,11 @@ private fun buildPayload(
         candleArr.put(obj)
     }
 
-    // 2. Indicator values (SMA, EMA, BB, RSI) - passed as boolean flags;
-    // actual values computed in JS
-    val indicatorFlags = JSONObject().apply {
-        put("sma20", sma20)
-        put("ema9", ema9)
-        put("bb", bb)
-        put("rsi", rsi)
-    }
-
-    // 3. Detected patterns from Kotlin engine (names only; JS can recompute or use as reference)
+    // 2. Detected patterns from Kotlin engine (names only; JS can recompute or use as reference)
     val patternsArr = JSONArray()
     patternNames.forEach { patternsArr.put(it) }
 
-    // 4. Markers (price levels, pattern start/end points, etc.)
+    // 3. Markers (price levels, pattern start/end points, etc.)
     val markersArr = JSONArray()
     markers.forEach { marker ->
         val mObj = JSONObject()
@@ -115,12 +96,11 @@ private fun buildPayload(
         markersArr.put(mObj)
     }
 
-    // 5. Full payload object
+    // 4. Full payload object
     return JSONObject().apply {
         put("candles", candleArr)
         put("timeframe", timeframe)
         put("symbol", symbol)
-        put("indicators", indicatorFlags)
         put("patterns", patternsArr)
         put("markers", markersArr)
         put("version", "lwc-android-bridge-1.0")

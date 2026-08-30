@@ -52,7 +52,7 @@ class BofMessagingService : FirebaseMessagingService() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "BOF signals",
+                NotificationChannel(CHANNEL_ID, "TradeBot signals",
                     NotificationManager.IMPORTANCE_DEFAULT).apply {
                     description = "Breakout failure alerts"
                 },

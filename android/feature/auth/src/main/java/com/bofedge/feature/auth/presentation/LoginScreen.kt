@@ -53,7 +53,7 @@ fun LoginScreen(
 
             // --- Brand block ---
             Text(
-                text = "BOF Edge",
+                text = "TradeBot",
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.primary,
             )

@@ -34,6 +34,7 @@ class Timeframe(str, enum.Enum):
     H4 = "4h"
     D1 = "1D"
     W1 = "1W"
+    MO = "1M"  # monthly (TRADEBOT spec §1 mandatory timeframe)
 
 
 class SignalDirection(str, enum.Enum):
@@ -42,9 +43,10 @@ class SignalDirection(str, enum.Enum):
 
 
 class SignalType(str, enum.Enum):
-    """Signal families produced by the BOF engine (see docs/bof-engine.md)."""
+    """Signal families produced by the engine (see docs/bof-engine.md)."""
 
-    BOF = "BOF"  # Breakout failure
+    BOF = "BOF"      # Breakout failure
+    PATTERN = "PATTERN"  # chart pattern hit (double top/bottom, H&S, … spec §8/§9)
 
 
 class SignalStrength(str, enum.Enum):

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.core.config import settings
+from app.core.config import get_settings
 from app.websocket import events
 from app.websocket.manager import manager
 
@@ -19,9 +19,12 @@ async def ws_market(websocket: WebSocket) -> None:
     """
     await manager.connect(websocket)
     try:
+        # Resolve at connect time: the provider can change (e.g. graceful
+        # fallback to demo), and tests pin it per-case via env + cache clear.
+        s = get_settings()
         await manager.send_personal(
             websocket,
-            events.hello_payload(settings.DEMO_TICK_SECONDS, settings.MARKET_DATA_PROVIDER),
+            events.hello_payload(s.DEMO_TICK_SECONDS, s.MARKET_DATA_PROVIDER),
         )
         while True:
             message = await websocket.receive_text()

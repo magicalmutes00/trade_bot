@@ -62,6 +62,7 @@ class EngineSignal:
     status: str                         # DETECTING | CONFIRMED | INVALIDATED
     detected_at: datetime               # breakout bar timestamp (idempotency key)
     confirmed_at: datetime | None
+    signal_type: str = "BOF"            # BOF | PATTERN | …
     metadata: dict = field(default_factory=dict)
 
 

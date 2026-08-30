@@ -89,7 +89,7 @@ fun MainShell(user: AuthUser) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("BOF Edge", fontWeight = FontWeight.SemiBold) },
+                title = { Text("TradeBot", fontWeight = FontWeight.SemiBold) },
             )
         },
         bottomBar = {

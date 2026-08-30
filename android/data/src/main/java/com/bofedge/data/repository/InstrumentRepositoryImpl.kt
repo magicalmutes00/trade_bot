@@ -25,6 +25,8 @@ import com.bofedge.domain.model.SignalStats
 import com.bofedge.domain.model.SignalStatsDetailed
 import com.bofedge.domain.model.SwingDetectionConfig
 import com.bofedge.domain.model.Timeframe
+import com.bofedge.domain.model.TradePattern
+import com.bofedge.domain.model.TradePatternStatus
 import com.bofedge.domain.repository.InstrumentRepository
 import com.bofedge.domain.repository.InstrumentSort
 import com.bofedge.domain.result.ApiResult
@@ -143,6 +145,13 @@ indices = d.indices.map {
         MarketStructureEngine.analyze(candleList, SwingDetectionConfig(swingLookback = lookback))
     }
 
+    /** Server-side strict pattern engine (spec §35) — the single source of
+     *  truth. On-device [chartPatterns]/[candlestickPatterns] are fallbacks. */
+    override suspend fun patternSignals(id: String, timeframe: Timeframe?): ApiResult<List<TradePattern>> = guarded {
+        val data = requireData(api.instrumentPatterns(id, timeframe?.code))
+        data.timeframes.filter { it.patternDetected != "None" }.map { it.toDomain() }
+    }
+
     override suspend fun candles(id: String, timeframe: Timeframe, limit: Int): ApiResult<List<Candle>> = guarded {
         val page = requireData(api.candles(id, timeframe, limit))
         // Backend returns newest-first; charts draw oldest→newest (left→right).
@@ -187,6 +196,32 @@ indices = d.indices.map {
         }
         return data
     }
+
+    private fun com.bofedge.data.remote.dto.PatternDto.toDomain() = TradePattern(
+        timeframe = timeframe,
+        patternDetected = patternDetected,
+        status = TradePatternStatus.fromWire(status)
+            ?: TradePatternStatus.FORMING,
+        direction = when (direction) {
+            "BULLISH" -> com.bofedge.domain.model.PatternDirection.BULLISH
+            "BEARISH" -> com.bofedge.domain.model.PatternDirection.BEARISH
+            else -> com.bofedge.domain.model.PatternDirection.NEUTRAL
+        },
+        confidence = confidence,
+        entry = entry,
+        stopLoss = stopLoss,
+        target1 = target1,
+        target2 = target2,
+        target3 = target3,
+        invalidation = invalidation,
+        additionalNotes = additionalNotes,
+        reasoning = reasoning,
+        necklinePrice = necklinePrice,
+        peakPrice = peakPrice,
+        swingIndices = swingIndices,
+        confirmIndex = confirmIndex,
+        detectedAt = detectedAt,
+    )
 
     private fun com.bofedge.data.remote.dto.SignalCardDto.toCard() =
         SignalCard(

@@ -64,6 +64,14 @@ interface BofApi {
         @Query("limit") limit: Int = 200,
     ): ApiResponseDto<com.bofedge.data.remote.dto.PaginatedCandlesDto>
 
+    /** TRADEBOT strict pattern engine (spec §35). `timeframe` optional; when
+     *  omitted the server scans its default (4H/1D) set. */
+    @GET("instruments/{id}/patterns")
+    suspend fun instrumentPatterns(
+        @Path("id") id: String,
+        @Query("timeframe") timeframe: String? = null,
+    ): ApiResponseDto<com.bofedge.data.remote.dto.InstrumentPatternsDto>
+
     @GET("watchlists")
     suspend fun watchlists(): ApiResponseDto<List<com.bofedge.data.remote.dto.WatchlistDto>>
 

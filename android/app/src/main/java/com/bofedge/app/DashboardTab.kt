@@ -361,7 +361,7 @@ fun ProfileTab(
 
         // ── Footer ────────────────────────────────────────────────────────
         Text(
-            "BOF Edge v0.1.0 · Demo data",
+            "TradeBot v0.1.0 · Demo data",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 24.dp),

@@ -40,3 +40,36 @@ class BOFConfig:
 
 
 DEFAULT_CONFIG = BOFConfig()
+
+
+@dataclass(frozen=True)
+class PatternConfig:
+    # --- double top / bottom (TRADEBOT §8, §9 — Traditional) ---
+    double_slippage: float = 0.0032        # ≤ 0.32% between the two peaks / bottoms
+    double_max_days: float = 274.0         # < 9 months between the two tops / bottoms
+    double_min_bars_between: int = 3       # structural: valley must sit between the two
+    double_confirm_bars: int = 1           # one candle CLOSE beyond the neckline suffices
+
+    # --- head & shoulders (§5, §6) ---
+    hs_shoulder_tolerance: float = 0.03    # head vs shoulder tolerance
+    hs_min_bars_between: int = 10
+    hs_confirm_bars: int = 1               # one close beyond neckline suffices
+
+    # --- triangles / channels (§11-15, §16-17) ---
+    triangle_min_touches: int = 3          # minimum touches on the sloped line
+    triangle_max_slope_divergence: float = 0.25   # max 25% divergence between two lines
+    triangle_min_bars: int = 15
+    channel_confirm_bars: int = 2          # two consecutive closes beyond the line
+
+    # --- harmonics (§26-28) ---
+    harmonic_tolerance: float = 0.05       # ±5% ratio tolerance band
+    harmonic_targets: tuple[float, ...] = (0.618, 1.0, 1.414)  # fib reversal of BC
+
+    # --- fib (§29) ---
+    fib_last_swing_bars: int = 30          # look back for major swing
+
+    def validate(self) -> None:
+        pass
+
+
+DEFAULT_PATTERN_CONFIG = PatternConfig()

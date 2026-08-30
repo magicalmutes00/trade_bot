@@ -1,4 +1,4 @@
-﻿package com.bofedge.feature.instrument.chart
+package com.bofedge.feature.instrument.chart
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -63,17 +63,11 @@ private val GRID = Color(0xFF1A2230)
 private val CROSS = Color(0xFF4E9CFF)
 private val AXIS_C = Color(0xFF8A97A8)
 private val LINE_C = Color(0xFF4E9CFF)
-private val BB_FILL = Color(0x154E9CFF)
-private val SMA20_C = Color(0xFFFF9800)
-private val EMA9_C = Color(0xFFE040FB)
-private val PANE_BG = Color(0xFF0D1117)
 private val TAG_TEXT = Color(0xFFFFFFFF)
 private val TAG_TEXT_DARK = Color(0xFF0B1420)
 
 // Geometry constants (lightweight-charts-inspired layout)
 private val TIME_AXIS_H = 22.dp
-private val PANE_GAP = 4.dp
-private val RSI_PANE_H = 56.dp
 private val AXIS_MIN_W = 46.dp
 private val AXIS_PAD = 6.dp
 private const val VOL_FRACTION = 0.16f          // volume strip = bottom 16 % of price pane
@@ -85,22 +79,17 @@ private const val DEGRADE_PX_PER_BAR = 3f       // below this px/bar → close-l
  *  • smart time axis — labels never overlap, date shown at day changes
  *  • magnet crosshair snapped to bars, with price + time axis tags
  *  • last close pinned on the axis with a direction-coloured tag
- *  • volume overlaid behind price; RSI pane shares the same crosshair
+ *  • volume overlaid behind price
  *  • degrades to a close-line when bars drop below [DEGRADE_PX_PER_BAR] px
  */
+/** Dashed ellipse only when a level is out of the visible pane. */
+private val LEVEL_DASH = PathEffect.dashPathEffect(floatArrayOf(6f, 5f))
+
 @Composable
 fun KiteStyleChart(
     candles: List<Candle>,
-    showSma20: Boolean,
-    showEma9: Boolean,
-    showBb: Boolean,
-    showRsi: Boolean,
+    levels: List<ChartLevel> = emptyList(),
     modifier: Modifier = Modifier,
-    sma20Values: List<Double?>? = null,
-    ema9Values: List<Double?>? = null,
-    bbUpper: List<Double?>? = null,
-    bbLower: List<Double?>? = null,
-    rsiValues: List<Double?>? = null,
 ) {
     if (candles.isEmpty()) return
 
@@ -117,21 +106,11 @@ fun KiteStyleChart(
     val endIdx = min(startIdx + visInt, total)
 
     val visible = candles.subList(startIdx, endIdx.coerceAtMost(total))
-    val visSma20 = sma20Values?.subList(startIdx, endIdx.coerceAtMost(sma20Values.size))
-    val visEma9 = ema9Values?.subList(startIdx, endIdx.coerceAtMost(ema9Values.size))
-    val visBbU = bbUpper?.subList(startIdx, endIdx.coerceAtMost(bbUpper.size))
-    val visBbL = bbLower?.subList(startIdx, endIdx.coerceAtMost(bbLower.size))
-    val visRsi = rsiValues?.subList(startIdx, endIdx.coerceAtMost(rsiValues.size))
 
     val scale = CandleChartMath.nicePriceScale(visible) ?: return
     val vols = CandleChartMath.volumeFractions(visible)
 
     // Reused across frames — Path churn is the main jank source while panning.
-    val bbUpPath = remember { Path() }
-    val bbLoPath = remember { Path() }
-    val smaPath = remember { Path() }
-    val emaPath = remember { Path() }
-    val rsiPath = remember { Path() }
     val degradeLine = remember { Path() }
 
     val textMeasurer = rememberTextMeasurer()
@@ -154,7 +133,7 @@ fun KiteStyleChart(
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(if (showRsi && visRsi != null) 300.dp else 260.dp),
+                .height(260.dp),
         ) {
             Canvas(
                 Modifier
@@ -195,18 +174,14 @@ fun KiteStyleChart(
                     candles = visible,
                     vols = vols,
                     scale = scale,
-                    bbU = if (showBb) visBbU else null,
-                    bbL = if (showBb) visBbL else null,
-                    sma = if (showSma20) visSma20 else null,
-                    ema = if (showEma9) visEma9 else null,
-                    rsi = if (showRsi) visRsi else null,
                     crossLocalIdx = selectedIdx
                         .takeIf { it in startIdx until endIdx }?.minus(startIdx),
                     startIdxGlobal = startIdx,
                     textMeasurer = textMeasurer,
                     axisStyle = axisStyle,
                     axisW = axisW,
-                    paths = OverlayPaths(bbUpPath, bbLoPath, smaPath, emaPath, rsiPath, degradeLine),
+                    degrade = degradeLine,
+                    levels = levels,
                 )
             }
 
@@ -249,30 +224,17 @@ fun KiteStyleChart(
 
 // ------------------------------------------------------------------ renderer
 
-private class OverlayPaths(
-    val bbUp: Path,
-    val bbLo: Path,
-    val sma: Path,
-    val ema: Path,
-    val rsi: Path,
-    val degrade: Path,
-)
-
 private fun DrawScope.drawTvChart(
     candles: List<Candle>,
     vols: List<Float>,
     scale: NicePriceScale,
-    bbU: List<Double?>?,
-    bbL: List<Double?>?,
-    sma: List<Double?>?,
-    ema: List<Double?>?,
-    rsi: List<Double?>?,
     crossLocalIdx: Int?,
     startIdxGlobal: Int,
     textMeasurer: TextMeasurer,
     axisStyle: TextStyle,
     axisW: Float,
-    paths: OverlayPaths,
+    degrade: Path,
+    levels: List<ChartLevel> = emptyList(),
 ) {
     val w = size.width
     val h = size.height
@@ -286,12 +248,9 @@ private fun DrawScope.drawTvChart(
     val plotW = (w - axisW).coerceAtLeast(40f)
     val axisPad = AXIS_PAD.toPx()
 
-    // ---- vertical regions: price pane (+volume strip) / RSI pane / time axis
+    // ---- vertical regions: price pane (+volume strip) / time axis
     val timeH = TIME_AXIS_H.toPx()
-    val hasRsi = rsi != null && rsi.any { it != null }
-    val gap = PANE_GAP.toPx()
-    val rsiH = if (hasRsi) RSI_PANE_H.toPx() else 0f
-    val priceBottom = h - timeH - (if (hasRsi) rsiH + gap else 0f)
+    val priceBottom = h - timeH
     val volTop = priceBottom * (1f - VOL_FRACTION)
 
     val pxPerBar = plotW / max(n, 1)
@@ -302,19 +261,6 @@ private fun DrawScope.drawTvChart(
     fun yPrice(p: Double): Float =
         (priceBottom * ((sMax - p) / span).toFloat()).coerceIn(0f, priceBottom)
     fun cx(localIdx: Int): Float = localIdx * pxPerBar + pxPerBar / 2
-
-    fun overlayLine(values: List<Double?>, path: Path, color: Color, strokeW: Float) {
-        if (values.all { it == null }) return
-        path.reset()
-        var started = false
-        for (i in values.indices) {
-            values[i]?.let { v ->
-                val y = yPrice(v)
-                if (!started) { path.moveTo(cx(i), y); started = true } else path.lineTo(cx(i), y)
-            } ?: run { started = false }
-        }
-        drawPath(path, color, style = Stroke(strokeW, cap = StrokeCap.Round))
-    }
 
     // ---- price gridlines + aligned right-axis labels
     tickLabels.forEachIndexed { i, m ->
@@ -357,36 +303,9 @@ private fun DrawScope.drawTvChart(
     // axis divider
     drawLine(GRID, Offset(plotW, 0f), Offset(plotW, h - timeH), 1f)
 
-    // ---- Bollinger bands (fill behind, thin outlines)
-    if (bbU != null && bbL != null) {
-        paths.bbUp.reset(); paths.bbLo.reset()
-        var uStarted = false; var lStarted = false
-        for (i in 0 until n) {
-            val x = cx(i)
-            bbU.getOrNull(i)?.let { v ->
-                val y = yPrice(v)
-                if (!uStarted) { paths.bbUp.moveTo(x, y); uStarted = true } else paths.bbUp.lineTo(x, y)
-            }
-            bbL.getOrNull(i)?.let { v ->
-                val y = yPrice(v)
-                if (!lStarted) { paths.bbLo.moveTo(x, y); lStarted = true } else paths.bbLo.lineTo(x, y)
-            }
-        }
-        if (uStarted && lStarted) {
-            for (i in n - 1 downTo 0) {
-                bbL.getOrNull(i)?.let { v -> paths.bbLo.lineTo(cx(i), yPrice(v)) }
-            }
-            paths.bbUp.addPath(paths.bbLo)
-            paths.bbUp.close()
-            drawPath(paths.bbUp, BB_FILL)
-        }
-        overlayLine(bbU, paths.bbUp, LINE_C.copy(alpha = .5f), 1.5f)
-        overlayLine(bbL, paths.bbLo, LINE_C.copy(alpha = .5f), 1.5f)
-    }
+    val degenerate = pxPerBar < DEGRADE_PX_PER_BAR
 
-    val degrade = pxPerBar < DEGRADE_PX_PER_BAR
-
-    if (!degrade) {
+    if (!degenerate) {
         // volume behind price
         val volMaxH = priceBottom - volTop
         for (i in 0 until n) {
@@ -416,18 +335,15 @@ private fun DrawScope.drawTvChart(
         }
     } else {
         // extreme zoom-out → close polyline keeps the shape readable
-        paths.degrade.reset()
+        degrade.reset()
         var started = false
         for (i in 0 until n) {
             val y = yPrice(candles[i].close)
-            if (!started) { paths.degrade.moveTo(cx(i), y); started = true }
-            else paths.degrade.lineTo(cx(i), y)
+            if (!started) { degrade.moveTo(cx(i), y); started = true }
+            else degrade.lineTo(cx(i), y)
         }
-        drawPath(paths.degrade, LINE_C, style = Stroke(2f, cap = StrokeCap.Round))
+        drawPath(degrade, LINE_C, style = Stroke(2f, cap = StrokeCap.Round))
     }
-
-    if (sma != null) overlayLine(sma, paths.sma, SMA20_C, 2f)
-    if (ema != null) overlayLine(ema, paths.ema, EMA9_C, 2f)
 
     // ---- last close pinned on the axis (dotted level + direction tag)
     val last = candles[n - 1]
@@ -444,30 +360,24 @@ private fun DrawScope.drawTvChart(
         style = axisStyle, pad = axisPad,
     )
 
-    // ---- RSI pane sharing the crosshair
-    if (hasRsi && rsi != null) {
-        val rsiTop = priceBottom + gap
-        drawRect(PANE_BG, Offset(0f, rsiTop), Size(plotW, rsiH))
-        fun yRsi(v: Double): Float = rsiTop + rsiH * (1f - v.toFloat() / 100f)
-        listOf(30.0, 70.0).forEach { lvl ->
-            val y = yRsi(lvl)
-            drawLine(GRID, Offset(0f, y), Offset(plotW, y), 1f)
-            val lm = textMeasurer.measure("${lvl.toInt()}", axisStyle.copy(color = AXIS_C))
-            drawText(
-                lm,
-                topLeft = Offset(w - axisW + (axisW - lm.size.width) / 2f, y - lm.size.height / 2f),
+    // ---- pattern levels (dashed horizontal lines + axis tags)
+    levels.forEach { lv ->
+        val lvColor = when {
+            lv.tag.startsWith("SL", ignoreCase = true) -> BEAR
+            lv.tag.startsWith("T", ignoreCase = true) -> BULL
+            else -> CROSS
+        }
+        val y = yPrice(lv.price)
+        if (y in 0f..priceBottom) {
+            drawLine(lvColor, Offset(0f, y), Offset(plotW, y), 1.2f,
+                pathEffect = LEVEL_DASH)
+            drawTag(
+                lv.tag,
+                left = plotW + 1f, width = w - plotW - 2f, centerY = y,
+                bg = lvColor, fg = TAG_TEXT, textMeasurer = textMeasurer,
+                style = axisStyle, pad = axisPad,
             )
         }
-        paths.rsi.reset()
-        var started = false
-        for (i in 0 until n) {
-            rsi.getOrNull(i)?.let { v ->
-                val y = yRsi(v)
-                if (!started) { paths.rsi.moveTo(cx(i), y); started = true }
-                else paths.rsi.lineTo(cx(i), y)
-            } ?: run { started = false }
-        }
-        drawPath(paths.rsi, LINE_C, style = Stroke(1.8f, cap = StrokeCap.Round))
     }
 
     // ---- magnet crosshair spanning all panes + price/time tags
@@ -612,11 +522,4 @@ private fun Scrollbar(
                 },
         )
     }
-}
-
-object ChartColors {
-    val SMA20 = SMA20_C
-    val EMA9 = EMA9_C
-    val BB = LINE_C
-    val SMA50 = Color(0xFFAB47BC)
 }

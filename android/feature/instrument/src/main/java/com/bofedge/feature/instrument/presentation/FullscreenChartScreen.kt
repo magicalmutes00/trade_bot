@@ -20,16 +20,17 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.bofedge.feature.instrument.chart.CandleChartMath
 import com.bofedge.feature.instrument.chart.KiteStyleChart
 import com.bofedge.feature.instrument.chart.TradingViewChartWebView
+import com.bofedge.feature.instrument.chart.toJsMarkers
+import com.bofedge.feature.instrument.chart.toNativeLevels
 
 import com.bofedge.domain.model.InstrumentDetail
 import com.bofedge.domain.model.Timeframe
 import com.bofedge.feature.instrument.presentation.InstrumentDetailUiState
 
-/** Every interval the backend serves. */
-private val CHART_TIMEFRAMES = listOf(Timeframe.DAILY, Timeframe.WEEKLY, Timeframe.MONTHLY)
+/** Every interval the backend serves (4h is the spec's primary scan TF). */
+private val CHART_TIMEFRAMES = listOf(Timeframe.H4, Timeframe.DAILY, Timeframe.WEEKLY, Timeframe.MONTHLY)
 
 @Composable
 fun FullscreenChartScreen(
@@ -41,11 +42,8 @@ fun FullscreenChartScreen(
 
     val detailState by viewModel.state.collectAsStateWithLifecycle()
     val candleState by viewModel.candles.collectAsStateWithLifecycle()
+    val tradePatternState by viewModel.tradePatternState.collectAsStateWithLifecycle()
 
-    var showSma20 by remember { mutableStateOf(true) }
-    var showEma9 by remember { mutableStateOf(false) }
-    var showBb by remember { mutableStateOf(false) }
-    var showRsi by remember { mutableStateOf(false) }
     var useTradingView by rememberSaveable { mutableStateOf(false) }
 
     // Hide system bars
@@ -103,23 +101,6 @@ fun FullscreenChartScreen(
                 isSelected = { it == candleState.timeframe },
                 onSelect = { tf -> viewModel.onTimeframeChange(tf) },
             )
-
-            ChartDropdown(
-                label = indicatorsLabel(showSma20, showEma9, showBb, showRsi),
-                items = listOf("MA20", "EMA9", "BB", "RSI"),
-                selectedItem = null,
-                itemLabel = { it },
-                isSelected = { ind -> isIndicatorOn(ind, showSma20, showEma9, showBb, showRsi) },
-                onSelect = { ind ->
-                    when (ind) {
-                        "MA20" -> showSma20 = !showSma20
-                        "EMA9" -> showEma9 = !showEma9
-                        "BB" -> showBb = !showBb
-                        "RSI" -> showRsi = !showRsi
-                    }
-                },
-                modifier = Modifier.padding(start = 4.dp),
-            )
         }
 
         // ---- Renderer toggle ----
@@ -147,27 +128,19 @@ fun FullscreenChartScreen(
                 }
                 else -> {
                     val cs = candleState.candles
+                    val patterns = tradePatternState.orEmpty()
                     if (useTradingView) {
                         TradingViewChartWebView(
                             candles = cs,
-                            showSma20 = showSma20,
-                            showEma9 = showEma9,
-                            showBb = showBb,
-                            showRsi = showRsi,
+                            timeframe = candleState.timeframe.toString(),
+                            patternNames = patterns.map { it.patternDetected },
+                            markers = patterns.toJsMarkers(cs),
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
                         KiteStyleChart(
                             candles = cs,
-                            showSma20 = showSma20,
-                            showEma9 = showEma9,
-                            showBb = showBb,
-                            showRsi = showRsi,
-                            sma20Values = CandleChartMath.sma(cs, 20),
-                            ema9Values = CandleChartMath.ema(cs, 9),
-                            bbUpper = if (showBb) CandleChartMath.bollinger(cs).upper else null,
-                            bbLower = if (showBb) CandleChartMath.bollinger(cs).lower else null,
-                            rsiValues = if (showRsi) CandleChartMath.rsi(cs) else null,
+                            levels = patterns.toNativeLevels(),
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -235,33 +208,6 @@ private fun <T> ChartDropdown(
                 )
             }
         }
-    }
-}
-
-private fun isIndicatorOn(
-    ind: String,
-    sma20: Boolean, ema9: Boolean, bb: Boolean, rsi: Boolean,
-): Boolean = when (ind) {
-    "MA20" -> sma20
-    "EMA9" -> ema9
-    "BB" -> bb
-    "RSI" -> rsi
-    else -> false
-}
-
-private fun indicatorsLabel(
-    sma20: Boolean, ema9: Boolean, bb: Boolean, rsi: Boolean,
-): String {
-    val on = listOfNotNull(
-        "MA20".takeIf { sma20 },
-        "EMA9".takeIf { ema9 },
-        "BB".takeIf { bb },
-        "RSI".takeIf { rsi },
-    )
-    return when {
-        on.isEmpty() -> "Indicators"
-        on.size == 1 -> on[0]
-        else -> "${on.size} indicators"
     }
 }
 

@@ -141,6 +141,15 @@ async def run_pipeline(
             trades = run_strategies(str(inst.id), tf.value, ec_candles)
             totals["trade_ideas"] = totals.get("trade_ideas", 0) + len(trades)
 
+        # Chart-pattern signals (spec §8/§9) on the stored mandatory timeframes
+        from app.services.pattern_service import SCAN_TIMEFRAMES, sync_instrument
+
+        for ptf in SCAN_TIMEFRAMES:
+            _ap, pstat = await sync_instrument(db, instrument_id=inst.id, timeframe=ptf)
+            totals["patterns_hits"] = totals.get("patterns_hits", 0) + pstat["hits"]
+            totals["patterns_created"] = totals.get("patterns_created", 0) + pstat["created"]
+            totals["patterns_updated"] = totals.get("patterns_updated", 0) + pstat["updated"]
+
         await _refresh_quote(db, provider, inst)
         await db.commit()
 
