@@ -31,7 +31,7 @@
     "test:e2e": "jest --runInBand --testTimeout=600000 --testPathPattern='\\.e2e\\.spec\\.ts$'",
     "lint": "eslint ./src/**/*.ts",
     "gpr-setup": "node ./scripts/setup-gpr.js",
-    "prepare": "husky install"
+    "prepare": "node -e \"try{require('husky').install()}catch(e){}\""
   },
   "lint-staged": {
     "src/**/*.{ts,tsx,js,jsx}": [
