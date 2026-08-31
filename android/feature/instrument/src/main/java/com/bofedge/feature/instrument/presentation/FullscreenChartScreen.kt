@@ -129,12 +129,13 @@ fun FullscreenChartScreen(
                 else -> {
                     val cs = candleState.candles
                     val patterns = tradePatternState.orEmpty()
+                    val symbol = (detailState as? InstrumentDetailUiState.Ready)
+                        ?.detail?.symbol?.let { "NSE:$it" } ?: "NSE:RELIANCE"
+                    val tf = candleState.timeframe.toString()  // "4h", "1D", "1W", "1M"
                     if (useTradingView) {
                         TradingViewChartWebView(
-                            candles = cs,
-                            timeframe = candleState.timeframe.toString(),
-                            patternNames = patterns.map { it.patternDetected },
-                            markers = patterns.toJsMarkers(cs),
+                            symbol = symbol,
+                            tf = tf,
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {

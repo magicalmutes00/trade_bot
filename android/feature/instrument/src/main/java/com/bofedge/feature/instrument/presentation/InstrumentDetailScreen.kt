@@ -39,9 +39,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import com.bofedge.feature.instrument.chart.KiteStyleChart
 import com.bofedge.feature.instrument.chart.TradingViewChartWebView
-import com.bofedge.feature.instrument.chart.toNativeLevels
 
 // ═══════════════════════════════════════════════════════════════════════
 //  ViewModel
@@ -330,10 +328,12 @@ private fun InstrumentDetailContent(
                         }
                     }
                     else -> {
-                        val cs = candleState.candles
-                        KiteStyleChart(
-                            candles = cs,
-                            levels = tradePatternState.orEmpty().toNativeLevels(),
+                        val symbol = "NSE:${detail.symbol}"
+                        val tfStr = selectedTf.toString()
+                        TradingViewChartWebView(
+                            symbol = symbol,
+                            tf = tfStr,
+                            modifier = Modifier.fillMaxWidth().height(240.dp),
                         )
                     }
                 }

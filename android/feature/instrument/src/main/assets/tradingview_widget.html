@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0B0F14; height: 100%; width: 100%; }
+  #tradingview-widget { height: 100vh; width: 100vw; }
+</style>
+</head>
+<body>
+<div id="tradingview-widget"></div>
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script>
+// Read ?symbol=NSE:TCS&interval=D from the URL, then create the widget.
+// Called from Kotlin via: loadUrl("file:///android_asset/tradingview_widget.html?symbol=NSE:TCS&interval=60")
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  const symbol = params.get("symbol") || "NSE:RELIANCE";
+  const interval = params.get("interval") || "D";   // D, W, M, 1, 3, 5, 15, 30, 60, etc.
+  const tf = params.get("tf") || "1D";             // "1D" → "D", "1W" → "W", "15m" → "15"
+
+  const tvInterval = tf === "1D" ? "D" : tf === "1W" ? "W" : tf === "1M" ? "M"
+    : tf === "1m" ? "1"   : tf === "3m"  ? "3"   : tf === "5m"  ? "5"
+    : tf === "15m" ? "15"  : tf === "30m" ? "30"  : tf === "1h"   ? "60"
+    : tf === "2h" ? "120"  : tf === "4h"  ? "240" : "D";
+
+  new TradingView.widget({
+    container_id: "tradingview-widget",
+    symbol: symbol,
+    interval: tvInterval,
+    timezone: "Asia/Kolkata",
+    theme: "dark",
+    style: "1",
+    locale: "en",
+    toolbar_bg: "#0B0F14",
+    backgroundColor: "#0B0F14",
+    gridColor: "#1A2230",
+    width: "100%",
+    height: "100%",
+    enable_publishing: false,
+    hide_side_toolbar: false,
+    save_image: false,
+    studies: [],
+    details: false,
+    hotlist: false,
+    calendar: false,
+    news: [],
+  });
+})();
+</script>
+</body>
+</html>
