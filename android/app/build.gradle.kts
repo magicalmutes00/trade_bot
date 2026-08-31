@@ -30,6 +30,7 @@ val resolvedWebClientId: String by lazy {
     val fromProperty = (project.findProperty("BOF_FIREBASE_WEB_CLIENT_ID") as? String)?.trim() ?: ""
     if (fromProperty.isNotEmpty()) return@lazy fromProperty
     if (!googleServicesFile.exists()) return@lazy ""
+    @Suppress("UNCHECKED_CAST")
     runCatching {
         val json = groovy.json.JsonSlurper().parse(googleServicesFile) as Map<*, *>
         val clients = (json["client"] as? List<Map<*, *>>).orEmpty()
