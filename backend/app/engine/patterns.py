@@ -11,43 +11,52 @@ Status vocabulary (spec §4): FORMING → FULLY_FORMED → INVALIDATED.
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import Enum
 
 from app.engine.config import DEFAULT_PATTERN_CONFIG, PatternConfig
 from app.engine.models import EngineCandle, EngineSignal, strength_from_score
 from app.engine.swings import Swing, SwingLabel, SwingStructure, analyse
+from app.engine.types import (
+    PatternStatus,
+    PatternDirection,
+    PatternHit,
+    _between,
+    _pct_diff,
+    _span_days,
+    _find_close_break,
+    _any_close_above,
+    _any_close_below,
+    _confidence,
+)
 
-
-class PatternStatus(str, Enum):
-    FORMING = "FORMING"           # structure developing, confirmation pending
-    FULLY_FORMED = "FULLY_FORMED" # mandatory structure + confirmation satisfied
-    INVALIDATED = "INVALIDATED"   # an explicit invalidation condition occurred
-
-
-class PatternDirection(str, Enum):
-    BULLISH = "BULLISH"           # double bottom, inverse H&S, …
-    BEARISH = "BEARISH"           # double top, H&S, …
-    NEUTRAL = "NEUTRAL"
-
-
-@dataclass(frozen=True)
-class PatternHit:
-    """A single pattern hit with geometry + trade plan + invalidation."""
-    name: str                           # e.g. "DOUBLE_TOP", "DOUBLE_BOTTOM"
-    direction: PatternDirection
-    status: PatternStatus
-    confirm_index: int | None           # candle index where the pattern fired (None while FORMING)
-    neckline_price: float               # breakout level (entry = neckline after breakout)
-    entry: float                        # price or zone where the trade triggers
-    stop_loss: float | None             # structural level (configurable policy, spec §8/§9 silent on SL)
-    targets: list[float]                # measured-move targets per spec
-    invalidation: str                   # exact condition that invalidates (§33)
-    peak_price: float                   # average of the two tops (double top) / bottoms (double bottom)
-    swing_indices: tuple[int, int, int] # (point1_idx, valley/peak_idx, point2_idx) candle indices
-    confidence: float                   # 0.0-1.0 rule-satisfaction score
-    notes: str = ""                     # rule trace / additional notes
+from app.engine.patterns_channel_triangle import (
+    detect_ascending_channel,
+    detect_descending_channel,
+    detect_ascending_triangle,
+    detect_descending_triangle,
+    detect_symmetrical_triangle,
+)
+from app.engine.patterns_continuation import (
+    detect_bull_flag,
+    detect_bear_flag,
+    detect_bull_pennant,
+    detect_bear_pennant,
+    detect_rising_wedge,
+    detect_falling_wedge,
+    detect_wolfe_wave,
+    detect_elliott_wave,
+    detect_drive,
+    detect_diamond,
+)
+from app.engine.patterns_cyclic import (
+    detect_cyclic_double_top,
+    detect_cyclic_double_bottom,
+)
+from app.engine.patterns_harmonics import (
+    detect_harmonics,
+    fib_levels,
+)
+from app.engine.patterns_hs import detect_head_shoulders
 
 
 def detect_double_top(
@@ -233,9 +242,34 @@ def detect_patterns(
 ) -> list[PatternHit]:
     """Run all pattern detectors and return combined hits (newest first)."""
     all_hits: list[PatternHit] = []
+    # Core (spec §8-9)
     all_hits.extend(detect_double_top(structure, candles, cfg))
     all_hits.extend(detect_double_bottom(structure, candles, cfg))
-    all_hits.sort(key=lambda h: h.confirm_index or 0, reverse=True)
+    # H&S (spec §5-6)
+    all_hits.extend(detect_head_shoulders(structure, candles, cfg))
+    # Cyclic (spec §10)
+    all_hits.extend(detect_cyclic_double_top(structure, candles, cfg))
+    all_hits.extend(detect_cyclic_double_bottom(structure, candles, cfg))
+    # Channels & Triangles (spec §11-15)
+    all_hits.extend(detect_ascending_channel(structure, candles, cfg))
+    all_hits.extend(detect_descending_channel(structure, candles, cfg))
+    all_hits.extend(detect_ascending_triangle(structure, candles, cfg))
+    all_hits.extend(detect_descending_triangle(structure, candles, cfg))
+    all_hits.extend(detect_symmetrical_triangle(structure, candles, cfg))
+    # Continuation (spec §16-25)
+    all_hits.extend(detect_bull_flag(structure, candles, cfg))
+    all_hits.extend(detect_bear_flag(structure, candles, cfg))
+    all_hits.extend(detect_bull_pennant(structure, candles, cfg))
+    all_hits.extend(detect_bear_pennant(structure, candles, cfg))
+    all_hits.extend(detect_rising_wedge(structure, candles, cfg))
+    all_hits.extend(detect_falling_wedge(structure, candles, cfg))
+    all_hits.extend(detect_wolfe_wave(structure, candles, cfg))
+    all_hits.extend(detect_elliott_wave(structure, candles, cfg))
+    all_hits.extend(detect_drive(structure, candles, cfg))
+    all_hits.extend(detect_diamond(structure, candles, cfg))
+    # Harmonics (spec §26-29)
+    all_hits.extend(detect_harmonics(structure, candles, cfg))
+    all_hits.sort(key=lambda h: (h.confirm_index or 0, h.name), reverse=True)
     return all_hits
 
 
@@ -256,7 +290,12 @@ def hit_to_json(hit: PatternHit) -> dict:
         return f"{x:.2f}" if x is not None else "N/A"
 
     targets = hit.targets or []
-    t1 = _price(targets[0]) + " (measured height)" if targets else "N/A"
+
+    def _t(i: int) -> str:
+        if i < len(targets):
+            label = " (measured height)" if len(targets) == 1 else ""
+            return _price(targets[i]) + label
+        return "N/A"
 
     return {
         "pattern": hit.name,
@@ -266,9 +305,9 @@ def hit_to_json(hit: PatternHit) -> dict:
         "confidence": hit.confidence,
         "entry": _price(hit.entry),
         "stop_loss": _price(hit.stop_loss),
-        "target_1": t1,
-        "target_2": "N/A",
-        "target_3": "N/A",
+        "target_1": _t(0),
+        "target_2": _t(1),
+        "target_3": _t(2),
         "invalidation": hit.invalidation,
         "additional_notes": hit.notes,
         "reasoning": _reasoning(hit),

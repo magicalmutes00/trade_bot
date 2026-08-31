@@ -209,11 +209,18 @@ def test_detect_patterns_returns_both_sorted_by_confirm():
     s = analyse(candles, left=1, right=1)
     hits = detect_patterns(s, candles)
 
-    assert len(hits) == 2
-    assert hits[0].name == "DOUBLE_TOP"
-    assert hits[0].status == PatternStatus.FULLY_FORMED
-    assert hits[1].name == "DOUBLE_BOTTOM"
-    assert hits[1].status == PatternStatus.FULLY_FORMED
+    # Hits with confirm_index=19 are the newest confirmed patterns;
+    # hits with confirm_index=9 are older (double bottom).
+    assert len(hits) >= 2
+    names = {h.name for h in hits}
+    assert "DOUBLE_TOP" in names
+    assert "DOUBLE_BOTTOM" in names
+    # The newest confirmed hits must come first (highest confirm_index)
+    top_confirm = hits[0].confirm_index
+    assert top_confirm == 19
+    for h in hits:
+        if h.confirm_index is not None:
+            assert h.confirm_index <= top_confirm
 
 
 # ── Edge cases ──────────────────────────────────────────────────────────────
