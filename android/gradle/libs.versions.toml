@@ -19,6 +19,7 @@ credentials = "1.3.0"
 googleid = "1.1.1"
 junit = "4.13.2"
 mockito = "5.12.0"
+webkit = "1.11.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -54,6 +55,7 @@ firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging
 
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
 androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
+androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }

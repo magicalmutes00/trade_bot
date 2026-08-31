@@ -48,6 +48,7 @@ dependencies {
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    implementation(libs.androidx.webkit)  // WebViewAssetLoader for TradingView widget
     implementation(libs.hilt.navigation.compose)
 
     testImplementation(libs.junit)
