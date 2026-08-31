@@ -76,7 +76,6 @@ services:
       # --- NSE provider proxy URL ---
       - key: NSE_PROVIDER_URL
         value: https://bof-nse-provider.onrender.com
-        sync: false
 
       # --- Firebase Cloud Messaging (optional until Phase-6 pushes wanted) ---
       - key: FIREBASE_PROJECT_ID
@@ -94,8 +93,8 @@ services:
     rootDir: stock-nse-india
     branch: main
     autoDeploy: true
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    buildCommand: rm -rf node_modules build && NODE_OPTIONS=--max-old-space-size=512 npm install && NODE_OPTIONS=--max-old-space-size=512 npm run build
+    startCommand: NODE_OPTIONS=--max-old-space-size=512 npm start
     envVars:
       - key: NODE_VERSION
         value: "20"
