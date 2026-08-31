@@ -62,9 +62,10 @@ private fun buildPayload(
     patternNames: List<String>,
     markers: List<Map<String, Any>>,
 ): String {
-    // 1. Candle data (newest-first DB order → oldest-first for LWC)
+    // 1. Candle data — repository already sorts ASC by timeMillis (oldest→newest),
+    //    which is what LWC requires. Don't reverse here.
     val candleArr = JSONArray()
-    for (c in candles.asReversed()) {
+    for (c in candles) {
         val obj = JSONObject()
         obj.put("time", c.timeMillis / 1000L)
         obj.put("open", c.open)

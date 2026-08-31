@@ -67,6 +67,9 @@ function init() {
 }
 
 let priceLines = [];
+// Cross-update dedup: accumulate seen times so the same bar can't be added twice
+// even across two consecutive updateChart calls (e.g., live candle refresh).
+const _allSeen = {};
 
 function clearOverlays() {
   if (candleS && priceLines.length) {
@@ -75,21 +78,38 @@ function clearOverlays() {
   }
 }
 
-window.updateChart = function (json) {
-  init();
-  const p = JSON.parse(json);
-
-  // bars arrive oldest-first from Kotlin
+function _setCandles(candles) {
   const bars = [], vols = [];
-  const seen = {};
-  for (const c of p.candles) {
-    if (seen[c.time]) continue;
-    seen[c.time] = 1;
+  for (const c of candles) {
+    // Deduplicate on time: skip if we've already added a bar at this exact timestamp.
+    // Uses seconds-granularity (Kotlin sends timeMillis/1000), so two feeds for the
+    // same minute won't stack. The map is never cleared — prevents live-refresh dupes.
+    if (_allSeen[c.time]) continue;
+    _allSeen[c.time] = 1;
     bars.push({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close });
     vols.push({ time: c.time, value: c.volume, color: c.close >= c.open ? UP + '55' : DOWN + '55' });
   }
-  candleS.setData(bars);
-  volS.setData(vols);
+  // REPLACE data, don't append.  setData() adds-to-series in lwc ≥ 4.x; clear() first.
+  if (bars.length) {
+    candleS.setData(bars);
+    volS.setData(vols);
+  }
+}
+
+window.updateChart = function (json) {
+  // Always (re)init: guard only on the chart instance, recreate series references on
+  // every call so fullscreen toggle / tab restore works (stale candleS was the blank-screen bug).
+  const p = JSON.parse(json);
+
+  // Build fresh chart+series each time so sizing is correct for the current container.
+  if (chart) {
+    try { chart.remove(); } catch (e) {}
+    chart = null; candleS = null; volS = null;
+    for (const l of priceLines) { try { candleS && candleS.removePriceLine(l); } catch (e) {} }
+    priceLines = [];
+  }
+  init();
+  _setCandles(p.candles);
 
   clearOverlays();
   const markers = [];
@@ -116,12 +136,13 @@ window.updateChart = function (json) {
   }
   if (markers.length) candleS.setMarkers(markers);
 
+  const bars = p.candles;
   if (bars.length) {
     const last = bars[bars.length - 1];
     const prev = bars.length > 1 ? bars[bars.length - 2].close : last.open;
     const pct = prev ? ((last.close - prev) / prev) * 100 : null;
     lastBar = { o: last.open, h: last.high, l: last.low, c: last.close,
-                v: vols[vols.length - 1].value, pct };
+                v: bars[bars.length - 1].volume, pct };
     fmtLegend(document.getElementById('legend'),
       last.open, last.high, last.low, last.close, lastBar.v, pct, false);
   }
