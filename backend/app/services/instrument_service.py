@@ -1,8 +1,11 @@
 """Instrument business logic."""
 
+import logging
+import os
 import uuid
 from datetime import datetime
 
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError, ValidationError
@@ -19,6 +22,10 @@ from app.schemas.instrument import (
     QuoteResponse,
     SignalStats,
 )
+
+logger = logging.getLogger(__name__)
+
+NSE_PROVIDER_URL = os.environ.get("NSE_PROVIDER_URL", "").rstrip("/")
 
 
 class InstrumentService:
@@ -107,9 +114,56 @@ class InstrumentService:
     ) -> PaginatedCandles:
         if await self.repo.get(instrument_id) is None:
             raise NotFoundError("Instrument not found")
+
+        # Primary: DB candles
         rows = await self.repo.candles(
             instrument_id=instrument_id, timeframe=timeframe, limit=limit + 1, before=before
         )
+
+        # Fallback to NSE provider when DB has no candles (backend 500 / empty feed)
+        if not rows and NSE_PROVIDER_URL:
+            try:
+                instrument = await self.repo.get(instrument_id)
+                symbol = instrument.symbol if instrument else "RELIANCE"
+                # Map timeframe to NSE interval
+                interval = "1minute" if timeframe == Timeframe.MINUTE_1 else \
+                           "5minute" if timeframe == Timeframe.MINUTE_5 else \
+                           "15minute" if timeframe == Timeframe.MINUTE_15 else \
+                           "30minute" if timeframe == Timeframe.MINUTE_30 else \
+                           "1hour" if timeframe in (Timeframe.HOUR_1, Timeframe.HOUR_4) else "1day"
+                url = (
+                    f"{NSE_PROVIDER_URL}/api/charts/equity-historical-data"
+                    f"?symbol={symbol}&start=2024-01-01&end=2025-12-31&timeInterval={interval}"
+                )
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        # NSE returns {time: ms, open, high, low, close, volume}
+                        # Convert to CandleResponse format
+                        nse_items = data if isinstance(data, list) else data.get("data", [])
+                        if not nse_items and isinstance(data, dict) and "time" in data:
+                            nse_items = [data]
+                        rows = []
+                        for item in nse_items[-limit:]:
+                            # time in ms from NSE; convert to datetime
+                            ts = datetime.fromtimestamp(int(item.get("time", 0)) / 1000)
+                            # Create a mock candle object that CandleResponse can use
+                            class MockCandle:
+                                pass
+                            c = MockCandle()
+                            c.timeframe = timeframe
+                            c.ts = ts
+                            c.open = float(item.get("open", 0))
+                            c.high = float(item.get("high", 0))
+                            c.low = float(item.get("low", 0))
+                            c.close = float(item.get("close", 0))
+                            c.volume = int(item.get("volume", 0) or 0)
+                            rows.append(c)
+                        logger.info("NSE provider returned %d candles for %s / %s", len(rows), symbol, timeframe)
+            except Exception as exc:
+                logger.warning("NSE provider fallback failed: %s", exc)
+
         has_more = len(rows) > limit
         rows = rows[:limit]
         items = [

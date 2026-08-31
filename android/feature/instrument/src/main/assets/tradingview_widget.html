@@ -3,46 +3,181 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<script src="lightweight-charts.standalone.production.js"></script>
 <style>
-  html, body { margin: 0; padding: 0; overflow: hidden; background: #0B0F14; height: 100vh; width: 100vw; }
-  iframe { border: 0; width: 100vw; height: 100vh; display: block; }
+  html, body { margin: 0; padding: 0; background: #0B0F14; overflow: hidden;
+               font-family: Roboto, sans-serif; }
+  #legend { position: absolute; top: 8px; left: 10px; z-index: 10;
+            background: rgba(18,24,33,.9); border-radius: 6px; padding: 5px 9px;
+            font-size: 11px; line-height: 15px; font-family: monospace;
+            pointer-events: none; color: #16C784; white-space: pre; }
+  #ticker { position: absolute; top: 8px; right: 10px; z-index: 10;
+            background: rgba(18,24,33,.9); border-radius: 6px; padding: 5px 10px;
+            font-size: 13px; line-height: 17px; font-family: monospace;
+            pointer-events: none; color: #16C784; text-align: right; }
+  #ticker .pct-up { color: #16C784; }
+  #ticker .pct-dn { color: #EA3943; }
+  #chart { width: 100vw; height: 100vh; }
 </style>
 </head>
 <body>
-<!-- Simple iframe to the official TradingView embed widget (hosted; always works).
-     No external JS library needed — the widget loads itself inside the iframe.
-     Symbol and timeframe are passed via URL query params that the embed reads. -->
-<iframe
-  id="tv-embed"
-  frameborder="0"
-  allowtransparency="true"
-  scrolling="no"
-></iframe>
+<div id="legend"></div>
+<div id="ticker"></div>
+<div id="chart"></div>
 <script>
-  (function () {
-    const params = new URLSearchParams(window.location.search);
-    const sym = params.get("symbol") || "NSE:RELIANCE";
-    const tf = params.get("tf") || "1D";
-    // TradingView embed-widget uses study timeframes: D, W, M, 1 (minute), 5, 15, 30, 60, 240
-    const interval = tf === "1D" ? "D" : tf === "1W" ? "W" : tf === "1M" ? "M"
-      : tf === "1m" ? "1"  : tf === "3m" ? "3"  : tf === "5m" ? "5"
-      : tf === "15m" ? "15" : tf === "30m" ? "30" : tf === "1h" ? "60"
-      : tf === "2h" ? "120" : tf === "4h" ? "240" : "D";
-    // Official embed-widget endpoint (always served from TradingView domain)
-    const src = "https://s3.tradingview.com/embed-widget/advanced-chart/?" +
-      "symbol=" + encodeURIComponent(sym) +
-      "&interval=" + interval +
-      "&theme=dark" +
-      "&style=1" +
-      "&locale=en" +
-      "&timezone=Asia/Kolkata" +
-      "&hide_side_toolbar=true" +
-      "&allow_symbol_change=false" +
-      "&save_image=false" +
-      "&toolbar_bg=%230B0F14" +
-      "&studies=";
-    document.getElementById("tv-embed").src = src;
-  })();
+const UP = '#16C784', DOWN = '#EA3943', GRID = '#1A2230', TEXT = '#8A97A8',
+      BG = '#0B0F14', ACCENT = '#4E9CFF';
+let chart = null, candleS = null, volS = null, lastBar = null;
+
+function fmtLegend(el, o, h, l, c, v, pct, hover) {
+  const col = c >= o ? UP : DOWN;
+  const s = pct === null ? '' : ' ' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+  el.style.color = col;
+  el.textContent =
+    'O ' + o.toFixed(2) + ' H ' + h.toFixed(2) + ' L ' + l.toFixed(2) +
+    ' C ' + c.toFixed(2) + s + '\n' +
+    'V ' + v.toLocaleString('en-IN') + (hover ? ' · hover' : '');
+}
+
+function init() {
+  if (chart) return;
+  chart = LightweightCharts.createChart(document.getElementById('chart'), {
+    autoSize: true,
+    layout: { background: { color: BG }, textColor: TEXT, fontSize: 11 },
+    grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
+    crosshair: {
+      vertLine: { color: ACCENT, labelBackgroundColor: ACCENT },
+      horzLine: { color: ACCENT, labelBackgroundColor: ACCENT },
+    },
+    timeScale: { timeVisible: true, secondsVisible: false, borderColor: GRID },
+    rightPriceScale: { borderColor: GRID },
+  });
+  candleS = chart.addSeries(LightweightCharts.CandlestickSeries, {
+    upColor: UP, downColor: DOWN, wickUpColor: UP, wickDownColor: DOWN, borderVisible: false,
+  });
+  volS = chart.addSeries(LightweightCharts.HistogramSeries, {
+    priceScaleId: '', lastValueVisible: false, priceLineVisible: false,
+  });
+  volS.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+
+  const legendEl = document.getElementById('legend');
+  chart.subscribeCrosshairMove((param) => {
+    const bar = param.seriesData.get(candleS);
+    const vol = param.seriesData.get(volS);
+    if (bar && legendEl) {
+      fmtLegend(legendEl, bar.open, bar.high, bar.low, bar.close,
+        vol ? vol.value : 0, lastBar ? lastBar.pct : null, true);
+    } else if (lastBar && legendEl) {
+      fmtLegend(legendEl, lastBar.o, lastBar.h, lastBar.l, lastBar.c, lastBar.v, lastBar.pct, false);
+    }
+  });
+}
+
+let priceLines = [];
+// Cross-update dedup: accumulate seen times so the same bar can't be added twice
+// even across two consecutive updateChart calls (e.g., live candle refresh).
+let _allSeen = {};
+
+function clearOverlays() {
+  if (candleS && priceLines.length) {
+    for (const l of priceLines) { try { candleS.removePriceLine(l); } catch (e) {} }
+    priceLines = [];
+  }
+}
+
+function _setCandles(candles) {
+  console.log("_setCandles called with", candles.length, "bars");
+  const bars = [], vols = [];
+  for (const c of candles) {
+    // Deduplicate on time: skip if we've already added a bar at this exact timestamp.
+    // Uses seconds-granularity (Kotlin sends timeMillis/1000). Map is cleared on rebuild
+    // (line 118) so every payload reloads fully, preventing both live-refresh dupes
+    // and the permanent-empty-candle bug from a stale dedup map.
+    if (_allSeen[c.time]) continue;
+    _allSeen[c.time] = 1;
+    bars.push({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close });
+    vols.push({ time: c.time, value: c.volume, color: c.close >= c.open ? UP + '55' : DOWN + '55' });
+  }
+  // REPLACE data, don't append.  setData() adds-to-series in lwc ≥ 4.x; clear() first.
+  if (bars.length) {
+    candleS.setData(bars);
+    volS.setData(vols);
+    console.log("setData done, bars set:", bars.length);
+  } else {
+    console.log("No bars to set, bars array empty");
+  }
+}
+
+window.updateChart = function (json) {
+  // Always (re)init: guard only on the chart instance, recreate series references on
+  // every call so fullscreen toggle / tab restore works (stale candleS was the blank-screen bug).
+  const p = JSON.parse(json);
+
+  // Build fresh chart+series each time so sizing is correct for the current container.
+  if (chart) {
+    try { chart.remove(); } catch (e) {}
+    chart = null; candleS = null; volS = null;
+    for (const l of priceLines) { try { candleS && candleS.removePriceLine(l); } catch (e) {} }
+    priceLines = [];
+  }
+  _allSeen = {}; // clear dedup map so all candles reload on rebuild
+  init();
+  _setCandles(p.candles);
+
+  clearOverlays();
+  const markers = [];
+  for (const m of (p.markers || [])) {
+    if (m.kind === 'price-line' && typeof m.price === 'number' && m.price > 0) {
+      const line = candleS.createPriceLine({
+        price: m.price,
+        color: m.color || ACCENT,
+        lineWidth: 1,
+        lineStyle: 2 /* lineStyle.Dashed */,
+        axisLabelVisible: true,
+        title: m.title || '',
+      });
+      priceLines.push(line);
+    } else if (m.kind === 'marker' && typeof m.time === 'number') {
+      markers.push({
+        time: m.time,
+        position: m.position || 'aboveBar',
+        shape: m.shape || 'circle',
+        color: m.color || ACCENT,
+        text: m.text || '',
+      });
+    }
+  }
+  if (markers.length && chart && typeof chart.setMarkers === 'function') {
+    try { chart.setMarkers(markers); } catch (e) { console.log("setMarkers failed:", e.message); }
+  }
+
+  const bars = p.candles;
+  if (bars.length) {
+    const last = bars[bars.length - 1];
+    const prev = bars.length > 1 ? bars[bars.length - 2].close : last.open;
+    const pct = prev ? ((last.close - prev) / prev) * 100 : null;
+    lastBar = { o: last.open, h: last.high, l: last.low, c: last.close,
+                v: bars[bars.length - 1].volume, pct };
+    fmtLegend(document.getElementById('legend'),
+      last.open, last.high, last.low, last.close, lastBar.v, pct, false);
+  }
+  chart.timeScale().fitContent();
+
+  // Live price ticker from server quote
+  if (p.quote) {
+    const q = p.quote;
+    const lp = (q.lastPrice != null) ? q.lastPrice.toFixed(2) : '--';
+    const pct = (q.changePct != null) ? ((q.changePct >= 0 ? '+' : '') + q.changePct.toFixed(2) + '%') : '';
+    const el = document.getElementById('ticker');
+    if (el) {
+      const cls = (q.changePct != null && q.changePct < 0) ? 'pct-dn' : 'pct-up';
+      const pctTxt = pct ? (' ' + pct) : '';
+      el.innerHTML = '<span style="font-weight:bold;color:#EAF0F6;">' + (p.symbol || '') + '</span> ' +
+                     '<span style="font-size:15px;color:#EAF0F6;">' + lp + '</span>' +
+                     '<span class="' + cls + '">' + pctTxt + '</span>';
+    }
+  }
+};
 </script>
 </body>
 </html>

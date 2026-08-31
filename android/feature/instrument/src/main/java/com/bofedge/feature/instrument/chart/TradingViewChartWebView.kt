@@ -1,35 +1,70 @@
 package com.bofedge.feature.instrument.chart
 
 import android.annotation.SuppressLint
-import android.net.Uri
 import android.util.Log
 import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
+import com.bofedge.domain.model.Candle
+import org.json.JSONArray
+import org.json.JSONObject
 
 private const val TAG = "TVChart"
 
 /**
- * TradingView Advanced Chart Widget (hosted, with logcat diagnostics).
- * If blank: check logcat for "TVChart" lines — will show load URL, intercept
- * result (asset loader hit/miss), page finish, JS errors, and WebView errors.
+ * Local TradingView Lightweight Charts bundle (already in assets/), served via
+ * WebViewAssetLoader at https://appassets.androidplatform.net/ so the WebView
+ * has a real https origin (file:// is opaque; remote DataUploader calls fail).
+ *
+ * Pure offline chart: no TradingView server, no symbol feed. Candles come from
+ * the backend (InstrumentRepository.candles). LWC draws them locally.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun TradingViewChartWebView(
-    symbol: String = "NSE:RELIANCE",
-    tf: String = "1D",
+    candles: List<Candle>,
+    timeframe: String = "1D",
+    symbol: String = "",
+    patternNames: List<String> = emptyList(),
+    markers: List<Map<String, Any>> = emptyList(),
+    quotePrice: Double? = null,
+    quotePct: Double? = null,
     modifier: Modifier = Modifier,
 ) {
-    val url = "https://appassets.androidplatform.net/assets/tradingview_widget.html" +
-        "?symbol=${Uri.encode(symbol)}&tf=${Uri.encode(tf)}"
-    Log.d(TAG, "init url=$url symbol=$symbol tf=$tf")
+    val payload = remember(candles, timeframe, symbol, patternNames, markers, quotePrice, quotePct) {
+        buildPayload(candles, timeframe, symbol, patternNames, markers, quotePrice, quotePct)
+    }
+    val url = "https://appassets.androidplatform.net/assets/tradingview_widget.html"
+
+    // pageReady flips true inside onPageFinished. The update lambda waits for it
+    // so the first payload isn't lost racing the page load.
+    var pageReady by remember { mutableStateOf(false) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
+
+    Log.d(TAG, "init candles=${candles.size} tf=$timeframe symbol=$symbol payloadBytes=${payload.length}")
+
+    // Re-feed payload whenever data changes and page is loaded.
+    // We call evaluateJavascript with the payload embedded as a JSON literal.
+    LaunchedEffect(payload, pageReady, webView) {
+        val w = webView
+        if (pageReady && w != null) {
+            // Escape payload for JS: wrap in single-quoted JSON, with internal quotes escaped.
+            val escaped = payload.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+            Log.d(TAG, "LaunchedEffect feeding payload (candles=${candles.size}) payloadLen=${payload.length}")
+            w.evaluateJavascript("window.updateChart(\"$escaped\");", null)
+        }
+    }
+
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -39,15 +74,8 @@ fun TradingViewChartWebView(
                 settings.domStorageEnabled = true
                 settings.loadWithOverviewMode = true
                 settings.useWideViewPort = true
-                settings.setSupportZoom(true)
                 settings.allowFileAccess = false
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                settings.cacheMode = WebSettings.LOAD_DEFAULT
-                // TradingView detects WebView as mobile and serves a broken widget.
-                // Override to a desktop Chrome UA so it serves the full desktop embed.
-                settings.userAgentString =
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
                 setBackgroundColor(android.graphics.Color.parseColor("#0B0F14"))
 
                 val assetLoader = WebViewAssetLoader.Builder()
@@ -56,13 +84,10 @@ fun TradingViewChartWebView(
 
                 webChromeClient = object : android.webkit.WebChromeClient() {
                     override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
-                        val msg = "[TV JS] ${consoleMessage.message()} " +
-                            "(line:${consoleMessage.lineNumber()} src:${consoleMessage.sourceId()})"
-                        if (consoleMessage.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
-                            Log.e(TAG, msg)
-                        } else {
-                            Log.d(TAG, msg)
-                        }
+                        val lvl = consoleMessage.messageLevel()
+                        val msg = "[TV JS] ${consoleMessage.message()} (line:${consoleMessage.lineNumber()})"
+                        if (lvl == android.webkit.ConsoleMessage.MessageLevel.ERROR) Log.e(TAG, msg)
+                        else Log.d(TAG, msg)
                         return true
                     }
                 }
@@ -71,53 +96,73 @@ fun TradingViewChartWebView(
                     override fun shouldInterceptRequest(
                         view: WebView,
                         request: WebResourceRequest,
-                    ): WebResourceResponse? {
-                        val res = assetLoader.shouldInterceptRequest(request.url)
-                        Log.d(TAG, "intercept url=${request.url} -> ${res != null}")
-                        return res
-                    }
-
-                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                        val host = request.url.host ?: ""
-                        val allowed = host == "appassets.androidplatform.net" ||
-                            host == "s3.tradingview.com" ||
-                            host.endsWith(".tradingview.com")
-                        Log.d(TAG, "navigate host=$host url=${request.url} allowed=$allowed")
-                        return !allowed  // false = allow; true = block (open externally)
-                    }
-
-                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                        Log.d(TAG, "pageStarted url=$url")
-                        super.onPageStarted(view, url, favicon)
-                    }
+                    ) = assetLoader.shouldInterceptRequest(request.url)
 
                     override fun onPageFinished(view: WebView?, url: String?) {
-                        Log.d(TAG, "pageFinished url=$url")
-                        view?.evaluateJavascript(
-                            "try { document.body.insertAdjacentHTML('beforeend'," +
-                                "'<div id=\"tv-debug\" style=\"position:fixed;top:0;left:0;background:#c62828;color:#fff;padding:8px;font-family:monospace;font-size:12px;z-index:9999\">" +
-                                "TV loaded OK — symbol=${symbol}</div>'); } catch(e){ console.error('debug inject fail', e); }"
-                        ) {}
-                        super.onPageFinished(view, url)
+                        Log.d(TAG, "pageFinished, marking ready")
+                        pageReady = true
                     }
 
                     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
-                        val desc = error?.description ?: "unknown"
-                        val code = error?.errorCode ?: -1
-                        Log.e(TAG, "onReceivedError url=${request?.url} code=$code desc=$desc")
-                        super.onReceivedError(view, request, error)
+                        Log.e(TAG, "onReceivedError url=${request?.url} code=${error?.errorCode} desc=${error?.description}")
                     }
                 }
-                Log.d(TAG, "loading url=$url")
                 loadUrl(url)
+                webView = this
             }
         },
-        update = { web ->
-            val current = web.url ?: ""
-            if (!current.contains(symbol) || !current.contains(tf)) {
-                Log.d(TAG, "update reload symbol=$symbol tf=$tf current=$current")
-                web.loadUrl(url)
-            }
-        },
+        // update kept empty: LaunchedEffect above does the work, gated on pageReady.
+        update = { _ -> },
     )
+}
+
+private fun buildPayload(
+    candles: List<Candle>,
+    timeframe: String,
+    symbol: String,
+    patternNames: List<String>,
+    markers: List<Map<String, Any>>,
+    quotePrice: Double? = null,
+    quotePct: Double? = null,
+): String {
+    val candleArr = JSONArray()
+    for (c in candles) {
+        val obj = JSONObject()
+        obj.put("time", c.timeMillis / 1000L)
+        obj.put("open", c.open)
+        obj.put("high", c.high)
+        obj.put("low", c.low)
+        obj.put("close", c.close)
+        obj.put("volume", c.volume)
+        candleArr.put(obj)
+    }
+    val markersArr = JSONArray()
+    for (marker in markers) {
+        val mObj = JSONObject()
+        for (key in marker.keys) {
+            val v = marker[key]
+            when (v) {
+                is Long -> mObj.put(key, v)
+                is Double -> mObj.put(key, v)
+                is String -> mObj.put(key, v)
+                is Boolean -> mObj.put(key, v)
+                else -> mObj.put(key, v.toString())
+            }
+        }
+        markersArr.put(mObj)
+    }
+    val payloadObj = JSONObject().apply {
+        put("candles", candleArr)
+        put("timeframe", timeframe)
+        put("symbol", symbol)
+        put("patterns", JSONArray(patternNames))
+        put("markers", markersArr)
+        if (quotePrice != null || quotePct != null) {
+            val quoteObj = JSONObject()
+            if (quotePrice != null) quoteObj.put("lastPrice", quotePrice)
+            if (quotePct != null) quoteObj.put("changePct", quotePct)
+            put("quote", quoteObj)
+        }
+    }
+    return payloadObj.toString()
 }

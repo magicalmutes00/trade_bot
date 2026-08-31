@@ -2,6 +2,7 @@ package com.bofedge.feature.instrument
 
 import com.bofedge.domain.model.RiskRewardResult
 import com.bofedge.domain.model.RiskRewardConfig
+import com.bofedge.domain.model.RiskRewardEngine
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -62,12 +63,12 @@ class RiskRewardEngineTest {
             configured = true,
         )
 
-        assertEquals(100.0, result.entry)
-        assertEquals(95.0, result.stopLoss)
-        assertEquals(110.0, result.target)
-        assertEquals(5.0, result.risk)
-        assertEquals(15.0, result.reward)
-        assertEquals(3.0, result.riskRewardRatio)
+        assertEquals(100.0, result.entry, 0.001)
+        assertEquals(95.0, result.stopLoss, 0.001)
+        assertEquals(110.0, result.target, 0.001)
+        assertEquals(5.0, result.risk, 0.001)
+        assertEquals(15.0, result.reward, 0.001)
+        assertEquals(3.0, result.riskRewardRatio, 0.001)
         assertEquals(true, result.configured)
     }
 }

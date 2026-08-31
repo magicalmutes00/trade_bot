@@ -134,8 +134,10 @@ fun FullscreenChartScreen(
                     val tf = candleState.timeframe.toString()  // "4h", "1D", "1W", "1M"
                     if (useTradingView) {
                         TradingViewChartWebView(
+                            candles = cs,
+                            timeframe = tf,
                             symbol = symbol,
-                            tf = tf,
+                            markers = patterns.toJsMarkers(cs),
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {

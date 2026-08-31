@@ -73,6 +73,11 @@ services:
       - key: MARKET_BASE_URL
         sync: false
 
+      # --- NSE provider proxy URL ---
+      - key: NSE_PROVIDER_URL
+        value: https://bof-nse-provider.onrender.com
+        sync: false
+
       # --- Firebase Cloud Messaging (optional until Phase-6 pushes wanted) ---
       - key: FIREBASE_PROJECT_ID
         sync: false
@@ -80,6 +85,22 @@ services:
         sync: false
       - key: FIREBASE_PRIVATE_KEY
         sync: false
+
+  - type: web
+    name: bof-nse-provider
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: stock-nse-india
+    branch: main
+    autoDeploy: true
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: PORT
+        value: "3000"
 
 # Uncomment ONLY for path B (fresh full-stack blueprint):
 # databases:

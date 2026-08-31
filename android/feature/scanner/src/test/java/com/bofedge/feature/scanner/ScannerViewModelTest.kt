@@ -7,6 +7,7 @@ import com.bofedge.domain.model.Timeframe
 import com.bofedge.domain.repository.InstrumentRepository
 import com.bofedge.domain.repository.InstrumentSort
 import com.bofedge.domain.result.ApiResult
+import com.bofedge.feature.scanner.presentation.ScannerViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher

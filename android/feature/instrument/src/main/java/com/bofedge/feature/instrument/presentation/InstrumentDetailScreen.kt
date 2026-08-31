@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import com.bofedge.feature.instrument.chart.TradingViewChartWebView
+import com.bofedge.feature.instrument.chart.toJsMarkers
 
 // ═══════════════════════════════════════════════════════════════════════
 //  ViewModel
@@ -105,6 +106,13 @@ class InstrumentDetailViewModel @Inject constructor(
         load()
         loadCandles()
         viewModelScope.launch { loadAllAnalysis() }
+        // Live quote polling: refresh detail every 10s to pick up updated lastPrice.
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(10_000)
+                refreshQuote()
+            }
+        }
     }
 
     private fun loadAllAnalysis() = viewModelScope.launch {
@@ -124,6 +132,14 @@ class InstrumentDetailViewModel @Inject constructor(
         when (val tp = repository.patternSignals(instrumentId, _candles.value.timeframe)) {
             is ApiResult.Success -> _tradePatterns.value = tp.value
             else -> _tradePatterns.value = emptyList()
+        }
+    }
+
+    /** Quick quote refresh — doesn't reload candles or analysis, just updates price card. */
+    fun refreshQuote() = viewModelScope.launch {
+        when (val result = repository.detail(instrumentId)) {
+            is ApiResult.Success -> _state.value = InstrumentDetailUiState.Ready(result.value)
+            else -> {}
         }
     }
 
@@ -328,11 +344,15 @@ private fun InstrumentDetailContent(
                         }
                     }
                     else -> {
-                        val symbol = "NSE:${detail.symbol}"
+                        val symbol = detail.symbol
                         val tfStr = selectedTf.toString()
                         TradingViewChartWebView(
+                            candles = candleState.candles,
+                            timeframe = tfStr,
                             symbol = symbol,
-                            tf = tfStr,
+                            markers = tradePatternState.orEmpty().toJsMarkers(candleState.candles),
+                            quotePrice = detail.quote?.lastPrice,
+                            quotePct = detail.quote?.changePct,
                             modifier = Modifier.fillMaxWidth().height(240.dp),
                         )
                     }
