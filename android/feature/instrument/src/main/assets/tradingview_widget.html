@@ -4,50 +4,45 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
-  html, body { margin: 0; padding: 0; overflow: hidden; background: #0B0F14; height: 100%; width: 100%; }
-  #tradingview-widget { height: 100vh; width: 100vw; }
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0B0F14; height: 100vh; width: 100vw; }
+  iframe { border: 0; width: 100vw; height: 100vh; display: block; }
 </style>
 </head>
 <body>
-<div id="tradingview-widget"></div>
-<script src="https://s3.tradingview.com/tv.js"></script>
+<!-- Simple iframe to the official TradingView embed widget (hosted; always works).
+     No external JS library needed — the widget loads itself inside the iframe.
+     Symbol and timeframe are passed via URL query params that the embed reads. -->
+<iframe
+  id="tv-embed"
+  frameborder="0"
+  allowtransparency="true"
+  scrolling="no"
+></iframe>
 <script>
-// Read ?symbol=NSE:TCS&interval=D from the URL, then create the widget.
-// Called from Kotlin via: loadUrl("file:///android_asset/tradingview_widget.html?symbol=NSE:TCS&interval=60")
-(function () {
-  const params = new URLSearchParams(window.location.search);
-  const symbol = params.get("symbol") || "NSE:RELIANCE";
-  const interval = params.get("interval") || "D";   // D, W, M, 1, 3, 5, 15, 30, 60, etc.
-  const tf = params.get("tf") || "1D";             // "1D" → "D", "1W" → "W", "15m" → "15"
-
-  const tvInterval = tf === "1D" ? "D" : tf === "1W" ? "W" : tf === "1M" ? "M"
-    : tf === "1m" ? "1"   : tf === "3m"  ? "3"   : tf === "5m"  ? "5"
-    : tf === "15m" ? "15"  : tf === "30m" ? "30"  : tf === "1h"   ? "60"
-    : tf === "2h" ? "120"  : tf === "4h"  ? "240" : "D";
-
-  new TradingView.widget({
-    container_id: "tradingview-widget",
-    symbol: symbol,
-    interval: tvInterval,
-    timezone: "Asia/Kolkata",
-    theme: "dark",
-    style: "1",
-    locale: "en",
-    toolbar_bg: "#0B0F14",
-    backgroundColor: "#0B0F14",
-    gridColor: "#1A2230",
-    width: "100%",
-    height: "100%",
-    enable_publishing: false,
-    hide_side_toolbar: false,
-    save_image: false,
-    studies: [],
-    details: false,
-    hotlist: false,
-    calendar: false,
-    news: [],
-  });
-})();
+  (function () {
+    const params = new URLSearchParams(window.location.search);
+    const sym = params.get("symbol") || "NSE:RELIANCE";
+    const tf = params.get("tf") || "1D";
+    // TradingView embed-widget uses study timeframes: D, W, M, 1 (minute), 5, 15, 30, 60, 240
+    const interval = tf === "1D" ? "D" : tf === "1W" ? "W" : tf === "1M" ? "M"
+      : tf === "1m" ? "1"  : tf === "3m" ? "3"  : tf === "5m" ? "5"
+      : tf === "15m" ? "15" : tf === "30m" ? "30" : tf === "1h" ? "60"
+      : tf === "2h" ? "120" : tf === "4h" ? "240" : "D";
+    // Official embed-widget endpoint (always served from TradingView domain)
+    const src = "https://s3.tradingview.com/embed-widget/advanced-chart/?" +
+      "symbol=" + encodeURIComponent(sym) +
+      "&interval=" + interval +
+      "&theme=dark" +
+      "&style=1" +
+      "&locale=en" +
+      "&timezone=Asia/Kolkata" +
+      "&hide_side_toolbar=true" +
+      "&allow_symbol_change=false" +
+      "&save_image=false" +
+      "&toolbar_bg=%230B0F14" +
+      "&studies=";
+    document.getElementById("tv-embed").src = src;
+  })();
 </script>
 </body>
 </html>

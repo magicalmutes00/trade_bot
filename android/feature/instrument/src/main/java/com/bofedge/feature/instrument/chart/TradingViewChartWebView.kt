@@ -43,6 +43,11 @@ fun TradingViewChartWebView(
                 settings.allowFileAccess = false
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 settings.cacheMode = WebSettings.LOAD_DEFAULT
+                // TradingView detects WebView as mobile and serves a broken widget.
+                // Override to a desktop Chrome UA so it serves the full desktop embed.
+                settings.userAgentString =
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
                 setBackgroundColor(android.graphics.Color.parseColor("#0B0F14"))
 
                 val assetLoader = WebViewAssetLoader.Builder()
@@ -74,8 +79,11 @@ fun TradingViewChartWebView(
 
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                         val host = request.url.host ?: ""
-                        Log.d(TAG, "navigate host=$host url=${request.url}")
-                        return if (host == "appassets.androidplatform.net") false else true
+                        val allowed = host == "appassets.androidplatform.net" ||
+                            host == "s3.tradingview.com" ||
+                            host.endsWith(".tradingview.com")
+                        Log.d(TAG, "navigate host=$host url=${request.url} allowed=$allowed")
+                        return !allowed  // false = allow; true = block (open externally)
                     }
 
                     override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
