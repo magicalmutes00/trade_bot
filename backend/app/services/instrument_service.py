@@ -3,7 +3,7 @@
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -104,6 +104,11 @@ class InstrumentService:
             stats=SignalStats(**stats),
         )
 
+    # Max age of a candle before we force-refresh from NSE.
+    # Guards against stale/mixed DB data (e.g. RELIANCE candles inserted under
+    # AXISBANK instrument_id) that would otherwise render on the chart.
+    _MAX_CANDLE_AGE_DAYS = 7
+
     async def get_candles(
         self,
         *,
@@ -120,8 +125,17 @@ class InstrumentService:
             instrument_id=instrument_id, timeframe=timeframe, limit=limit + 1, before=before
         )
 
-        # Fallback to NSE provider when DB has no candles (backend 500 / empty feed)
-        if not rows and NSE_PROVIDER_URL:
+        # Freshness gate: if the newest DB candle is older than _MAX_CANDLE_AGE_DAYS,
+        # discard it and pull from NSE.  Guards against stale DB data AND against
+        # contaminated rows (wrong prices inserted under the correct instrument_id).
+        now_utc = datetime.now(timezone.utc)
+        cutoff = now_utc - timedelta(days=self._MAX_CANDLE_AGE_DAYS)
+        db_stale = (
+            rows and rows[0].ts.replace(tzinfo=timezone.utc) < cutoff
+        )
+
+        # Fallback to NSE provider when DB is empty or stale
+        if (not rows or db_stale) and NSE_PROVIDER_URL:
             try:
                 instrument = await self.repo.get(instrument_id)
                 symbol = instrument.symbol if instrument else "RELIANCE"
@@ -133,7 +147,7 @@ class InstrumentService:
                            "1hour" if timeframe in (Timeframe.HOUR_1, Timeframe.HOUR_4) else "1day"
                 url = (
                     f"{NSE_PROVIDER_URL}/api/charts/equity-historical-data"
-                    f"?symbol={symbol}&start=2024-01-01&end=2025-12-31&timeInterval={interval}"
+                    f"?symbol={symbol}&start=2024-06-01&end=2026-09-01&timeInterval={interval}"
                 )
                 async with httpx.AsyncClient(timeout=15.0) as client:
                     resp = await client.get(url)
