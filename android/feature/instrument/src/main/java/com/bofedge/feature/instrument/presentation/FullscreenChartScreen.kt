@@ -46,8 +46,6 @@ fun FullscreenChartScreen(
     val candleState by viewModel.candles.collectAsStateWithLifecycle()
     val tradePatternState by viewModel.tradePatternState.collectAsStateWithLifecycle()
 
-    var useTradingView by rememberSaveable { mutableStateOf(false) }
-
     // Auto-refresh candles every 60s while on this screen
     LaunchedEffect(Unit) {
         while (true) {
@@ -131,14 +129,6 @@ fun FullscreenChartScreen(
             }
         }
 
-        // ---- Renderer toggle ----
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            RendererChip("Native", !useTradingView) { useTradingView = false }
-            RendererChip("TradingView", useTradingView) { useTradingView = true }        }
-
         // ---- Chart fills remaining space ----
         Box(Modifier.weight(1f)) {
             when {
@@ -160,21 +150,13 @@ fun FullscreenChartScreen(
                     val symbol = (detailState as? InstrumentDetailUiState.Ready)
                         ?.detail?.symbol?.let { "NSE:$it" } ?: "NSE:RELIANCE"
                     val tf = candleState.timeframe.toString()  // "4h", "1D", "1W", "1M"
-                    if (useTradingView) {
-                        TradingViewChartWebView(
-                            candles = cs,
-                            timeframe = tf,
-                            symbol = symbol,
-                            markers = patterns.toJsMarkers(cs),
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        KiteStyleChart(
-                            candles = cs,
-                            levels = patterns.toNativeLevels(),
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
+                    TradingViewChartWebView(
+                        candles = cs,
+                        timeframe = tf,
+                        symbol = symbol,
+                        markers = patterns.toJsMarkers(cs),
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
             }
         }
