@@ -116,6 +116,16 @@ class InstrumentDetailViewModel @Inject constructor(
     }
 
     private fun loadAllAnalysis() = viewModelScope.launch {
+        // Clear stale analysis from previous symbol/timeframe BEFORE the new
+        // request starts. Without this, the WebView would render the previous
+        // symbol's TradePattern levels (e.g. RELIANCE Entry=3639 on a fresh
+        // AXISBANK chart) until the new HTTP call returns.
+        _marketStructure.value = null
+        _candlestickPatterns.value = null
+        _chartPatterns.value = null
+        _tradePatterns.value = null
+        _riskReward.value = null
+
         when (val ms = repository.marketStructure(instrumentId, _candles.value.timeframe)) {
             is ApiResult.Success -> _marketStructure.value = ms.value
             else -> {}
@@ -158,6 +168,13 @@ class InstrumentDetailViewModel @Inject constructor(
 
     fun onTimeframeChange(timeframe: Timeframe) {
         if (_candles.value.timeframe == timeframe) return
+        // Drop patterns immediately so the chart can't paint overlays for the
+        // previous timeframe (e.g. weekly pattern lines on a daily refresh).
+        _tradePatterns.value = null
+        _marketStructure.value = null
+        _candlestickPatterns.value = null
+        _chartPatterns.value = null
+        _riskReward.value = null
         _candles.value = CandlesUiState(timeframe = timeframe, loading = true)
         loadCandlesInternal()
         viewModelScope.launch { loadAllAnalysis() }

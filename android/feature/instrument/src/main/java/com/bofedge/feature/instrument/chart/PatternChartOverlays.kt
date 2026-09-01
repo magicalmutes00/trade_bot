@@ -33,26 +33,36 @@ internal fun List<TradePattern>.toNativeLevels(): List<ChartLevel> {
 }
 
 /** JS bridge entries for the TradingView renderer: dashed price lines plus a
- *  confirm marker placed on the matching candle (same UTC day). */
+ *  confirm marker placed on the matching candle (same UTC day).
+ *
+ *  HARD RANGE GUARD: any pattern level whose price lies outside the visible
+ *  candle band (with 10% margin) is dropped. This protects against stale
+ *  patterns from a previous symbol/timeframe (e.g. RELIANCE Entry=3639 on a
+ *  fresh AXISBANK chart priced ~1235) even if the ViewModel fails to clear
+ *  `_tradePatterns` before the new payload arrives. */
 internal fun List<TradePattern>.toJsMarkers(candles: List<Candle>): List<Map<String, Any>> {
-    if (isEmpty()) return emptyList()
+    if (isEmpty() || candles.isEmpty()) return emptyList()
+    val (lo, hi) = candles.aggregateRange()
+    val margin = (hi - lo) * 0.10
+    val inRange: (Double) -> Boolean = { p -> p >= lo - margin && p <= hi + margin }
+
     val out = mutableListOf<Map<String, Any>>()
     val dayBuckets = candles.mapIndexed { i, c -> c.timeMillis / DAY_MS to i }
         .groupBy { it.first }
     for (p in this) {
-        p.necklinePrice?.takeIf { it > 0 }?.let {
+        p.necklinePrice?.takeIf { it > 0 }?.takeIf(inRange)?.let {
             out += mapOf(
                 "kind" to "price-line", "price" to it, "title" to "Neckline",
                 "color" to "#4E9CFF",
             )
         }
-        p.entry?.toPrice()?.let {
+        p.entry?.toPrice()?.takeIf(inRange)?.let {
             out += mapOf("kind" to "price-line", "price" to it, "title" to "Entry", "color" to "#4E9CFF")
         }
-        p.stopLoss?.toPrice()?.let {
+        p.stopLoss?.toPrice()?.takeIf(inRange)?.let {
             out += mapOf("kind" to "price-line", "price" to it, "title" to "SL", "color" to "#EA3943")
         }
-        p.target1?.toPrice()?.let {
+        p.target1?.toPrice()?.takeIf(inRange)?.let {
             out += mapOf("kind" to "price-line", "price" to it, "title" to "T1", "color" to "#16C784")
         }
         val confirm = p.detectedAt?.toEpochSecond()?.let { targetSec ->
@@ -72,6 +82,31 @@ internal fun List<TradePattern>.toJsMarkers(candles: List<Candle>): List<Map<Str
         }
     }
     return out
+}
+
+/** Median-based min/max of all candle prices; uses mid-of-OHLC per bar to
+ *  resist single-bar outliers skewing the band. */
+private fun List<Candle>.aggregateRange(): Pair<Double, Double> {
+    val mids = map { (it.high + it.low) / 2.0 }.sorted()
+    val n = mids.size
+    val median = mids[n / 2]
+    if (median <= 0) {
+        // Fallback: literal min/max
+        var lo = Double.POSITIVE_INFINITY
+        var hi = Double.NEGATIVE_INFINITY
+        forEach { c -> if (c.low < lo) lo = c.low; if (c.high > hi) hi = c.high }
+        return lo to hi
+    }
+    // Filter to the [0.2×median, 5×median] band — anything further is clearly
+    // contaminated (different symbol / currency).
+    val clean = filter { c ->
+        val m = (c.high + c.low) / 2.0
+        m > 0 && m >= median * 0.2 && m <= median * 5.0
+    }.ifEmpty { this }
+    var lo = Double.POSITIVE_INFINITY
+    var hi = Double.NEGATIVE_INFINITY
+    for (c in clean) { if (c.low < lo) lo = c.low; if (c.high > hi) hi = c.high }
+    return lo to hi
 }
 
 private const val DAY_MS = 86_400_000L
