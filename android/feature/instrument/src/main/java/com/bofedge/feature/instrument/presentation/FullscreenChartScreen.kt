@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -28,6 +29,7 @@ import com.bofedge.feature.instrument.chart.toNativeLevels
 import com.bofedge.domain.model.InstrumentDetail
 import com.bofedge.domain.model.Timeframe
 import com.bofedge.feature.instrument.presentation.InstrumentDetailUiState
+import kotlinx.coroutines.delay
 
 /** Every interval the backend serves (4h is the spec's primary scan TF). */
 private val CHART_TIMEFRAMES = listOf(Timeframe.H4, Timeframe.DAILY, Timeframe.WEEKLY, Timeframe.MONTHLY)
@@ -45,6 +47,16 @@ fun FullscreenChartScreen(
     val tradePatternState by viewModel.tradePatternState.collectAsStateWithLifecycle()
 
     var useTradingView by rememberSaveable { mutableStateOf(false) }
+
+    // Auto-refresh candles every 60s while on this screen
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            if (!candleState.loading) {
+                viewModel.loadCandles()
+            }
+        }
+    }
 
     // Hide system bars
     LaunchedEffect(Unit) {
@@ -101,6 +113,22 @@ fun FullscreenChartScreen(
                 isSelected = { it == candleState.timeframe },
                 onSelect = { tf -> viewModel.onTimeframeChange(tf) },
             )
+
+            // Refresh button
+            IconButton(
+                onClick = {
+                    viewModel.loadCandles()
+                    viewModel.refreshQuote()
+                },
+                enabled = !candleState.loading,
+            ) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    "Refresh",
+                    tint = if (candleState.loading) Color(0xFF8A97A8) else Color(0xFF4E9CFF),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
 
         // ---- Renderer toggle ----

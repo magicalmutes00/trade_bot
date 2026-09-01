@@ -41,6 +41,9 @@ fun TradingViewChartWebView(
     quotePct: Double? = null,
     modifier: Modifier = Modifier,
 ) {
+    // Defensive: if markers belong to a different symbol/timeframe they could
+    // persist incorrectly. The caller (FullscreenChartScreen) must pass
+    // markers derived from the CURRENT tradePatternState + current candles.
     val payload = remember(candles, timeframe, symbol, patternNames, markers, quotePrice, quotePct) {
         buildPayload(candles, timeframe, symbol, patternNames, markers, quotePrice, quotePct)
     }
@@ -53,15 +56,15 @@ fun TradingViewChartWebView(
 
     Log.d(TAG, "init candles=${candles.size} tf=$timeframe symbol=$symbol payloadBytes=${payload.length}")
 
-    // Re-feed payload whenever data changes and page is loaded.
-    // We call evaluateJavascript with the payload embedded as a JSON literal.
-    LaunchedEffect(payload, pageReady, webView) {
-        val w = webView
-        if (pageReady && w != null) {
-            // Escape payload for JS: wrap in single-quoted JSON, with internal quotes escaped.
-            val escaped = payload.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
-            Log.d(TAG, "LaunchedEffect feeding payload (candles=${candles.size}) payloadLen=${payload.length}")
-            w.evaluateJavascript("window.updateChart(\"$escaped\");", null)
+    // Single feed point: only call once per (payload + pageReady) change.
+    // pageReady must be true (script loaded) AND payload must have changed.
+    // We compare payload strings so duplicate payloads (same candles) don't re-trigger.
+    var lastPayloadSent by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pageReady, payload, webView) {
+        if (pageReady && webView != null && payload != lastPayloadSent) {
+            Log.d(TAG, "feeding payload (candles=${candles.size}) len=${payload.length}")
+            webView!!.evaluateJavascript("window.updateChart($payload);", null)
+            lastPayloadSent = payload
         }
     }
 
@@ -77,6 +80,12 @@ fun TradingViewChartWebView(
                 settings.allowFileAccess = false
                 settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 setBackgroundColor(android.graphics.Color.parseColor("#0B0F14"))
+                // Disable hardware acceleration for the WebView canvas. LWC's
+                // canvas is not WebGL — forcing GPU compositing causes
+                // "Unable to match desired swap behavior" / BLASTBufferQueue
+                // errors that result in a blank canvas on many Android devices.
+                // With LAYER_TYPE_SOFTWARE the canvas 2D renderer draws normally.
+                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
 
                 val assetLoader = WebViewAssetLoader.Builder()
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(ctx))

@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <script src="lightweight-charts.standalone.production.js"></script>
 <style>
-  html, body { margin: 0; padding: 0; background: #0B0F14; overflow: hidden;
-               font-family: Roboto, sans-serif; }
+  html, body { margin: 0; padding: 0;
+               background: #0B0F14; overflow: hidden; font-family: Roboto, sans-serif; }
+  #chart { position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; }
   #legend { position: absolute; top: 8px; left: 10px; z-index: 10;
             background: rgba(18,24,33,.9); border-radius: 6px; padding: 5px 9px;
             font-size: 11px; line-height: 15px; font-family: monospace;
@@ -17,17 +18,39 @@
             pointer-events: none; color: #16C784; text-align: right; }
   #ticker .pct-up { color: #16C784; }
   #ticker .pct-dn { color: #EA3943; }
-  #chart { width: 100vw; height: 100vh; }
+  #patternPanel { position: absolute; bottom: 8px; left: 8px; right: 8px; z-index: 10;
+            background: rgba(18,24,33,.92); border-radius: 8px; padding: 8px 12px;
+            font-family: Roboto, sans-serif; font-size: 12px; line-height: 17px;
+            color: #EAF0F6; display: none; pointer-events: none;
+            border: 1px solid #1A2230; }
+  #patternPanel .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  #patternPanel .lvl { display: flex; align-items: center; gap: 6px; }
+  #patternPanel .tag {
+    min-width: 26px; height: 16px; border-radius: 3px; display: inline-block;
+    text-align: center; line-height: 16px; font-size: 9px; font-weight: bold;
+    color: #0B0F14; padding: 0 4px; }
+  #patternPanel .val { font-family: monospace; color: #EAF0F6; }
+  #patternPanel .conf-up { background: #16C784; }
+  #patternPanel .conf-dn { background: #EA3943; }
+  #patternPanel .conf-fm { background: #F9A825; }
 </style>
 </head>
 <body>
 <div id="legend"></div>
 <div id="ticker"></div>
+<div id="patternPanel"></div>
 <div id="chart"></div>
 <script>
 const UP = '#16C784', DOWN = '#EA3943', GRID = '#1A2230', TEXT = '#8A97A8',
       BG = '#0B0F14', ACCENT = '#4E9CFF';
 let chart = null, candleS = null, volS = null, lastBar = null;
+
+  // Defensive retry: if LWC hasn't loaded, defer the call.
+  let _deferTimer = null;
+  function _deferUpdate(jsonStr) {
+    if (_deferTimer) clearTimeout(_deferTimer);
+    _deferTimer = setTimeout(function() { window.updateChart(jsonStr); }, 250);
+  }
 
 function fmtLegend(el, o, h, l, c, v, pct, hover) {
   const col = c >= o ? UP : DOWN;
@@ -41,7 +64,13 @@ function fmtLegend(el, o, h, l, c, v, pct, hover) {
 
 function init() {
   if (chart) return;
-  chart = LightweightCharts.createChart(document.getElementById('chart'), {
+  const container = document.getElementById('chart');
+  const h = Math.max(container.offsetHeight || window.innerHeight || 600, 300);
+  const w = Math.max(container.offsetWidth || window.innerWidth || 367, 300);
+  console.log("init: H=" + h + " W=" + w + " offsetH=" + container.offsetHeight);
+  chart = LightweightCharts.createChart(container, {
+    width: w,
+    height: h,
     autoSize: true,
     layout: { background: { color: BG }, textColor: TEXT, fontSize: 11 },
     grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
@@ -59,6 +88,30 @@ function init() {
     priceScaleId: '', lastValueVisible: false, priceLineVisible: false,
   });
   volS.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  console.log("init: chart created, H=" + h + " W=" + w);
+  container.style.width = w + 'px';
+  container.style.height = h + 'px';
+
+  new ResizeObserver(() => {
+    const rh = container.offsetHeight;
+    const rw = container.offsetWidth;
+    if (chart && rh > 0 && rw > 0) {
+      chart.resize(rw, rh);
+      console.log("resize: H=" + rh + " W=" + rw);
+    }
+  }).observe(container);
+
+  window.addEventListener('resize', () => {
+    if (!chart) return;
+    const rh = window.innerHeight || container.offsetHeight;
+    const rw = window.innerWidth || container.offsetWidth;
+    if (rh > 0 && rw > 0) {
+      chart.resize(rw, rh);
+      container.style.width = rw + 'px';
+      container.style.height = rh + 'px';
+      console.log("window-resize: H=" + rh + " W=" + rw);
+    }
+  });
 
   const legendEl = document.getElementById('legend');
   chart.subscribeCrosshairMove((param) => {
@@ -74,9 +127,6 @@ function init() {
 }
 
 let priceLines = [];
-// Cross-update dedup: accumulate seen times so the same bar can't be added twice
-// even across two consecutive updateChart calls (e.g., live candle refresh).
-let _allSeen = {};
 
 function clearOverlays() {
   if (candleS && priceLines.length) {
@@ -86,53 +136,177 @@ function clearOverlays() {
 }
 
 function _setCandles(candles) {
-  console.log("_setCandles called with", candles.length, "bars");
-  const bars = [], vols = [];
+  const container = document.getElementById('chart');
+  if (!candles || candles.length === 0) return;
+  const seen = {};
+  const ascending = [];
   for (const c of candles) {
-    // Deduplicate on time: skip if we've already added a bar at this exact timestamp.
-    // Uses seconds-granularity (Kotlin sends timeMillis/1000). Map is cleared on rebuild
-    // (line 118) so every payload reloads fully, preventing both live-refresh dupes
-    // and the permanent-empty-candle bug from a stale dedup map.
-    if (_allSeen[c.time]) continue;
-    _allSeen[c.time] = 1;
-    bars.push({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close });
-    vols.push({ time: c.time, value: c.volume, color: c.close >= c.open ? UP + '55' : DOWN + '55' });
+    const d = new Date(c.time * 1000);
+    const dayKey = d.getUTCFullYear() + '-' + (d.getUTCMonth() + 1) + '-' + d.getUTCDate();
+    if (seen[dayKey]) continue;
+    seen[dayKey] = 1;
+    ascending.push({ day: dayKey, time: c.time, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume });
   }
-  // REPLACE data, don't append.  setData() adds-to-series in lwc ≥ 4.x; clear() first.
+  ascending.sort((a, b) => a.time - b.time);
+  const bars = [], vols = [];
+  for (const c of ascending) {
+    const d = new Date(c.time * 1000);
+    bars.push({ time: { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() },
+                open: c.open, high: c.high, low: c.low, close: c.close });
+    vols.push({ time: { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() },
+                value: c.volume, color: c.close >= c.open ? UP + '55' : DOWN + '55' });
+  }
   if (bars.length) {
-    candleS.setData(bars);
-    volS.setData(vols);
-    console.log("setData done, bars set:", bars.length);
-  } else {
-    console.log("No bars to set, bars array empty");
+    try {
+      candleS.setData(bars);
+      volS.setData(vols);
+      console.log("setData done, bars:", bars.length,
+        "| containerW=" + container.offsetWidth + " containerH=" + container.offsetHeight,
+        "| firstTime=" + (bars[0] ? JSON.stringify(bars[0].time) : 'n/a'),
+        "| lastTime=" + (bars[bars.length-1] ? JSON.stringify(bars[bars.length-1].time) : 'n/a'));
+    } catch (e) {
+      console.log("setData failed:", e.message);
+    }
   }
 }
 
-window.updateChart = function (json) {
-  // Always (re)init: guard only on the chart instance, recreate series references on
-  // every call so fullscreen toggle / tab restore works (stale candleS was the blank-screen bug).
-  const p = JSON.parse(json);
+function renderPatternPanel(markers) {
+  const panel = document.getElementById('patternPanel');
+  if (!panel) return;
+  const priceLines2 = (markers || []).filter(m => m.kind === 'price-line' && typeof m.price === 'number' && m.price > 0);
+  if (priceLines2.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  let html = '<div class="row">';
+  const levelMap = {};
+  priceLines2.forEach(m => {
+    const title = (m.title || '').toLowerCase();
+    if (title.includes('sl') || title.includes('stop')) levelMap.sl = m;
+    else if (title.includes('t1')) levelMap.t1 = m;
+    else if (title.includes('t2')) levelMap.t2 = m;
+    else if (title.includes('t3')) levelMap.t3 = m;
+    else if (title.includes('entry')) levelMap.entry = m;
+    else if (title.includes('neckline')) levelMap.neckline = m;
+  });
+  const show = (tag, obj, color) => {
+    if (!obj) return;
+    html += `<div class="lvl"><span class="tag" style="background:${color}">${tag}</span><span class="val">₹${obj.price.toFixed(2)}</span></div>`;
+  };
+  show('Entry', levelMap.entry, '#4E9CFF');
+  show('SL', levelMap.sl, '#EA3943');
+  show('T1', levelMap.t1, '#16C784');
+  show('T2', levelMap.t2, '#16C784');
+  show('T3', levelMap.t3, '#16C784');
+  show('Neck', levelMap.neckline, '#F9A825');
+  html += '</div>';
+  panel.innerHTML = html;
+}
 
-  // Build fresh chart+series each time so sizing is correct for the current container.
+window.updateChart = function (json) {
+  if (typeof LightweightCharts === 'undefined') {
+    console.log("updateChart deferred — LWC not yet loaded");
+    _deferUpdate(JSON.stringify(json));
+    return;
+  }
+  let p;
+  try {
+    p = (typeof json === 'string') ? JSON.parse(json) : json;
+  } catch (e) {
+    console.log("updateChart: failed to parse payload:", e.message);
+    return;
+  }
+  if (!p || !Array.isArray(p.candles) || p.candles.length === 0) {
+    console.log("updateChart: payload missing 'candles' array or empty");
+    return;
+  }
+
+  // Validate price sanity: any single candle whose OHLC is wildly inconsistent
+  // with the median of the rest is dropped before it ever reaches the series.
+  // This catches upstream symbol-mix-ups (e.g. AXISBANK receiving RELIANCE
+  // candles around ₹3000) before they corrupt the price scale.
+  const c = p.candles;
+  const med = (arr) => {
+    const s = [...arr].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)];
+  };
+  const midCloses = c.map(x => (x.open + x.close) / 2);
+  const medPrice = med(midCloses);
+  const cleanCandles = c.filter(x => {
+    const m = (x.open + x.close) / 2;
+    // Reject only if more than 5× the median — anything tighter is legit
+    // (different timeframes can have legitimately different price levels on
+    // split-adjusted stocks). 5× guards against symbol/currency mix-ups.
+    if (medPrice <= 0) return true;
+    return m > 0 && m >= medPrice / 5 && m <= medPrice * 5;
+  });
+  if (cleanCandles.length !== c.length) {
+    console.log("updateChart: dropped " + (c.length - cleanCandles.length) +
+      " out-of-range candles (median=" + medPrice.toFixed(2) + ")");
+    p.candles = cleanCandles;
+  }
+  if (p.candles.length === 0) return;
+
+  // Compute the actual price range of the new candles. Done AFTER the candle
+  // filter so we use the same data that was actually pushed to the series.
+  // The previous version used a 0.2–5× median guard, which let stale overlays
+  // through (RELIANCE ~3639 vs AXISBANK median ~1273 = ratio 2.86, passed).
+  // We now use min/max of the candle highs/lows so any overlay outside the
+  // visible band is rejected.
+  let lo = Infinity, hi = -Infinity;
+  for (const x of p.candles) {
+    if (x.low < lo) lo = x.low;
+    if (x.high > hi) hi = x.high;
+  }
+  const margin = (hi - lo) * 0.05;  // 5% padding keeps near-range overlays
+
+  // ---- Full reset of previous state BEFORE creating new chart/series.
+  // The previous version leaked price-line references across rebuilds, which
+  // caused stale overlays (Entry/SL/T1 from another symbol) to be drawn on
+  // the new chart, forcing the auto-scale to expand to the union of both
+  // price ranges (e.g. ₹3000-5000 from a prior stock + ₹1200-1300 now).
   if (chart) {
     try { chart.remove(); } catch (e) {}
-    chart = null; candleS = null; volS = null;
-    for (const l of priceLines) { try { candleS && candleS.removePriceLine(l); } catch (e) {} }
-    priceLines = [];
   }
-  _allSeen = {}; // clear dedup map so all candles reload on rebuild
+  // Drop ALL references immediately. Any in-flight removePriceLine from
+  // before is meaningless because the underlying chart is gone.
+  chart = null;
+  candleS = null;
+  volS = null;
+  priceLines = [];
+  lastBar = null;
+
   init();
   _setCandles(p.candles);
 
+  // After _setCandles, the autoscale reflects ONLY the new candle data.
+  // Now add overlays. clearOverlays is a no-op here (priceLines is already
+  // empty) but kept for defense in depth.
   clearOverlays();
   const markers = [];
   for (const m of (p.markers || [])) {
     if (m.kind === 'price-line' && typeof m.price === 'number' && m.price > 0) {
+      // Sanity-check: skip overlay levels that are wildly outside the new
+      // candle range. They belong to a previous symbol's patterns.
+      if (lo !== Infinity && hi !== -Infinity) {
+        const price = m.price;
+        // Drop overlay if it lies well outside the candle range (e.g. stale
+        // levels from a previous symbol like RELIANCE ~3639 / 4670 when
+        // current is AXISBANK ~1200-1300). A 5% margin keeps real near-range
+        // levels (entry/sl/t1 often sit just above/below the visible band).
+        if (price < lo - margin || price > hi + margin) {
+          console.log("updateChart: dropping stale overlay " + m.title +
+            " @ " + price + " (candle range=" + lo.toFixed(2) +
+            "-" + hi.toFixed(2) + ", margin=" + margin.toFixed(2) + ")");
+          continue;
+        }
+      }
       const line = candleS.createPriceLine({
         price: m.price,
         color: m.color || ACCENT,
         lineWidth: 1,
-        lineStyle: 2 /* lineStyle.Dashed */,
+        lineStyle: 2,
         axisLabelVisible: true,
         title: m.title || '',
       });
@@ -163,7 +337,10 @@ window.updateChart = function (json) {
   }
   chart.timeScale().fitContent();
 
-  // Live price ticker from server quote
+  // Pattern info panel
+  renderPatternPanel(p.markers || []);
+
+  // Live price ticker
   if (p.quote) {
     const q = p.quote;
     const lp = (q.lastPrice != null) ? q.lastPrice.toFixed(2) : '--';
