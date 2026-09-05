@@ -22,14 +22,14 @@ android {
             buildConfigField(
                 "String",
                 "BOF_BASE_URL",
-                "\"https://13264a7680ce6f.lhr.life/api/v1/\""
+                "\"https://bof-edge-api.onrender.com/api/v1/\""
             )
         }
         release {
             buildConfigField(
                 "String",
                 "BOF_BASE_URL",
-                "\"https://13264a7680ce6f.lhr.life/api/v1/\""
+                "\"https://bof-edge-api.onrender.com/api/v1/\""
             )
         }
     }
