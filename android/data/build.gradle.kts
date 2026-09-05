@@ -22,14 +22,14 @@ android {
             buildConfigField(
                 "String",
                 "BOF_BASE_URL",
-                "\"https://ab4347fe9b0236.lhr.life/api/v1/\""
+                "\"https://13264a7680ce6f.lhr.life/api/v1/\""
             )
         }
         release {
             buildConfigField(
                 "String",
                 "BOF_BASE_URL",
-                "\"https://ab4347fe9b0236.lhr.life/api/v1/\""
+                "\"https://13264a7680ce6f.lhr.life/api/v1/\""
             )
         }
     }
