@@ -195,6 +195,12 @@ class DemoMarketDataProvider(MarketDataProvider):
 _AGG_FACTOR = {"15m": 1, "30m": 2, "1h": 4, "4h": 16}
 
 
+def _is_market_day(dt: datetime) -> bool:
+    """Basic Indian-market calendar: skip weekends (Sat/Sun).
+    Holistic holiday calendar requires external data; this prevents
+    the 'duplicate previous-day' artifact observed on HDFCBANK."""
+    return dt.weekday() < 5  # Mon=0 … Fri=4
+
 def _aggregate(base_bars: list[dict], timeframe: str) -> list[dict]:
     """Aggregate consecutive base bars; '1D' groups by UTC date, '1W' by ISO week."""
     if timeframe in _AGG_FACTOR:
@@ -210,6 +216,8 @@ def _aggregate(base_bars: list[dict], timeframe: str) -> list[dict]:
     for b in base_bars:
         ts = b["ts"]
         if timeframe == "1D":
+            if not _is_market_day(ts):
+                continue
             key = (ts.year, ts.month, ts.day)
         elif timeframe == "1W":
             iso = ts.isocalendar()

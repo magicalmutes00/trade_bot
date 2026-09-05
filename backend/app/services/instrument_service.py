@@ -180,6 +180,17 @@ class InstrumentService:
 
         has_more = len(rows) > limit
         rows = rows[:limit]
+
+        # DB median guard: drop rows whose price is wildly outside the median
+        # of the returned series (protects against symbol-mix contamination).
+        if rows:
+            mids = sorted([(float(r.open) + float(r.close)) / 2.0 for r in rows])
+            median = mids[len(mids)//2]
+            if median > 0:
+                clean = [r for r in rows if (float(r.open)+float(r.close))/2.0 >= median/2 and (float(r.open)+float(r.close))/2.0 <= median*2]
+                if len(clean) >= 2:
+                    rows = clean
+
         items = [
             CandleResponse(
                 timeframe=c.timeframe,

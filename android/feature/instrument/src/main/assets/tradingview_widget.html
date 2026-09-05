@@ -239,7 +239,7 @@ window.updateChart = function (json) {
     // (different timeframes can have legitimately different price levels on
     // split-adjusted stocks). 5× guards against symbol/currency mix-ups.
     if (medPrice <= 0) return true;
-    return m > 0 && m >= medPrice / 5 && m <= medPrice * 5;
+    return m > 0 && m >= medPrice / 2 && m <= medPrice * 2;
   });
   if (cleanCandles.length !== c.length) {
     console.log("updateChart: dropped " + (c.length - cleanCandles.length) +
@@ -336,6 +336,7 @@ window.updateChart = function (json) {
       last.open, last.high, last.low, last.close, lastBar.v, pct, false);
   }
   chart.timeScale().fitContent();
+  chart.priceScale('right').applyOptions({ autoScale: true, scaleMargins: { top: 0.08, bottom: 0.08 } });
 
   // Pattern info panel
   renderPatternPanel(p.markers || []);
