@@ -89,7 +89,9 @@ fun DashboardTab(mainViewModel: MainViewModel, realtimeViewModel: RealtimeViewMo
         EmptyState(title = "", description = "", modifier = Modifier.height(0.dp))
 
         // Bottom padding so content clears the nav bar
-        Spacer(Modifier.height(72.dp))
+        // Bottom padding: use a smaller spacer so the nav bar never overlaps
+        // content on small screens, but we don't over-pad on large screens.
+        Spacer(Modifier.height(56.dp))
     }
 }
 
@@ -149,10 +151,22 @@ private fun BofSummaryCard(summary: com.bofedge.domain.model.BofSummary) {
 
 @Composable
 private fun SummaryStat(label: String, value: Int) {
+    // Responsive: use headlineSmall instead of titleLarge so the 3-column
+    // summary grid fits on 360dp-wide phones without wrapping or clipping.
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value.toString(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.labelSmall,
-             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            value.toString(),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
     }
 }
 
@@ -173,15 +187,26 @@ private fun LiveMoversCard(ticks: Map<String, com.bofedge.domain.model.QuoteTick
                 ticks.values.sortedByDescending { kotlin.math.abs(it.changePct ?: 0.0) }
                     .take(5).forEach { tick ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(tick.symbol, style = MaterialTheme.typography.bodyMedium,
-                                 fontWeight = FontWeight.Medium)
-                            Text(buildString {
-                                append("%.2f".format(tick.lastPrice))
-                                tick.changePct?.let { append("   %+.2f%%".format(it)) }
-                            }, style = MaterialTheme.typography.bodyMedium,
-                               color = if ((tick.changePct ?: 0.0) >= 0) Color(0xFF16C784)
-                                       else Color(0xFFEA3943))
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                tick.symbol,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                buildString {
+                                    append("%.2f".format(tick.lastPrice))
+                                    tick.changePct?.let { append("   %+.2f%%".format(it)) }
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if ((tick.changePct ?: 0.0) >= 0) Color(0xFF16C784)
+                                        else Color(0xFFEA3943),
+                                maxLines = 1,
+                            )
                         }
                     }
             }

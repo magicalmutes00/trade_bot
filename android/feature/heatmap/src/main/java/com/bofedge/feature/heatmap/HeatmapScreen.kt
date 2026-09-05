@@ -2,8 +2,10 @@
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,7 +53,10 @@ fun HeatmapRoute(onOpenInstrument: (String) -> Unit, viewModel: HeatmapViewModel
 
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FilterChip(
@@ -64,7 +69,7 @@ fun HeatmapRoute(onOpenInstrument: (String) -> Unit, viewModel: HeatmapViewModel
                 onClick = viewModel::toggleGrouping,
                 label = { Text("By type") },
             )
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
             FilterChip(
                 selected = state.onlyWithSignals,
                 onClick = viewModel::toggleOnlySignals,

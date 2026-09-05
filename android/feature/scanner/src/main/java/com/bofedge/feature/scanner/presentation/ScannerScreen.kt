@@ -2,7 +2,8 @@
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -75,9 +76,13 @@ fun ScannerRoute(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         )
 
+        // Type filters: scroll horizontally so chips never get clipped on narrow
+        // phones. Wrapped in a Row with horizontalScroll + content padding so the
+        // first/last chip align with screen edges but overflow is reachable.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -90,9 +95,12 @@ fun ScannerRoute(
             }
         }
 
+        // Sort row: same horizontal scroll treatment. The "Sort" label is the
+        // first child so it scrolls together with the chips instead of pinning.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -205,20 +213,37 @@ private fun InstrumentRow(instrument: Instrument, onClick: () -> Unit, onStar: (
             Modifier.padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(instrument.symbol, fontWeight = FontWeight.SemiBold)
+            Column(
+                Modifier.weight(1f),
+                // Allow the left text block to shrink gracefully when the right
+                // meta column is wide (long sector names on narrow phones).
+            ) {
+                Text(
+                    instrument.symbol,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
                 Text(
                     instrument.name,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
+            // Right meta column: always readable but never pushes the symbol
+            // off-screen — it just takes available space with ellipsised text.
+            Column(
+                horizontalAlignment = Alignment.End,
+                modifier = Modifier.padding(horizontal = 6.dp),
+            ) {
                 Text(
                     instrument.type.lowercase().replaceFirstChar { it.uppercase() },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
                 instrument.sectorName?.let {
                     Text(
@@ -226,6 +251,7 @@ private fun InstrumentRow(instrument: Instrument, onClick: () -> Unit, onStar: (
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                 }
             }
