@@ -1,5 +1,7 @@
 """Phase 2 endpoint tests: instruments list/detail/candles + dashboard."""
 
+import pytest
+
 from app.models import Instrument, InstrumentType, Sector
 from tests.conftest import auth_headers, login_user, register_user
 
@@ -102,6 +104,72 @@ async def test_candles_empty_until_provider(client, db):
     assert resp.status_code == 200
     data = resp.json()["data"]
     assert data["items"] == [] and data["has_more"] is False
+
+
+async def test_candles_fallback_fetches_and_persists_from_nse(client, db, monkeypatch):
+    """Empty DB + NSE_PROVIDER_URL set → live fetch, serve, and STORE the
+    candles so the DB warms up (previously fetched candles were never kept)."""
+    from datetime import datetime, timedelta, timezone
+
+    await _seed(db)
+
+    class StubNseProvider:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def aclose(self):
+            pass
+
+        async def get_candles(self, symbol, timeframe, bars, **kwargs):
+            now = datetime.now(timezone.utc)
+            return [
+                {"ts": now - timedelta(minutes=15 * (i + 1)),
+                 "open": 100.0, "high": 101.0, "low": 99.0,
+                 "close": 100.5 + i * 0.1, "volume": 1000 + i}
+                for i in range(40)
+            ]
+
+    from app.core.config import settings
+    from app.models import Candle, Timeframe
+
+    monkeypatch.setattr(
+        "app.services.instrument_service.NseIndiaProvider", StubNseProvider
+    )
+    monkeypatch.setattr(settings, "NSE_PROVIDER_URL", "https://nse.test")
+
+    listing = (await client.get("/api/v1/instruments?q=TCS")).json()["data"]["items"][0]
+    resp = await client.get(
+        f"/api/v1/instruments/{listing['id']}/candles?timeframe=15m&limit=50"
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert len(data["items"]) == 40
+    assert data["items"][0]["close"] == pytest.approx(104.4, abs=0.05)   # oldest
+    assert data["items"][-1]["close"] == pytest.approx(100.5, abs=0.05)  # newest
+    assert data["has_more"] is False
+
+    # The fetched candles must now live in the DB…
+    from uuid import UUID
+
+    from sqlalchemy import select, func
+
+    count = (
+        await db.execute(
+            select(func.count()).where(
+                Candle.instrument_id == UUID(listing["id"]),
+                Candle.timeframe == Timeframe.M15,
+            )
+        )
+    ).scalar()
+    assert count == 40
+
+    # …so a second request is served from the DB even with the stub removed.
+    monkeypatch.setattr(settings, "NSE_PROVIDER_URL", "")
+    resp2 = await client.get(
+        f"/api/v1/instruments/{listing['id']}/candles?timeframe=15m&limit=50"
+    )
+    assert resp2.status_code == 200
+    assert len(resp2.json()["data"]["items"]) == 40
 
 
 async def test_candles_bad_timeframe_rejected(client, db):

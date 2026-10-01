@@ -1,18 +1,16 @@
 """Instrument business logic."""
 
 import logging
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.errors import NotFoundError, ValidationError
 from app.models import Instrument
 from app.models.enums import InstrumentType, Timeframe
 from app.repositories.instrument_repository import InstrumentRepository
-from app.schemas.common import ok  # noqa: F401 (kept for parity)
 from app.schemas.instrument import (
     CandleResponse,
     InstrumentDetail,
@@ -22,10 +20,11 @@ from app.schemas.instrument import (
     QuoteResponse,
     SignalStats,
 )
+from app.services.providers.nse_provider import NseIndiaProvider
+from app.services.signal_persistence import store_candles
+from app.workers.candle_processing import normalise
 
 logger = logging.getLogger(__name__)
-
-NSE_PROVIDER_URL = os.environ.get("NSE_PROVIDER_URL", "").rstrip("/")
 
 
 class InstrumentService:
@@ -117,7 +116,8 @@ class InstrumentService:
         limit: int,
         before: datetime | None,
     ) -> PaginatedCandles:
-        if await self.repo.get(instrument_id) is None:
+        instrument = await self.repo.get(instrument_id)
+        if instrument is None:
             raise NotFoundError("Instrument not found")
 
         # Primary: DB candles
@@ -126,74 +126,23 @@ class InstrumentService:
         )
 
         # Freshness gate: if the newest DB candle is older than _MAX_CANDLE_AGE_DAYS,
-        # discard it and pull from NSE.  Guards against stale DB data AND against
-        # contaminated rows (wrong prices inserted under the correct instrument_id).
+        # discard it and pull live from the stock-nse-india sidecar instead.
+        # Guards against stale DB data AND against contaminated rows (wrong
+        # prices inserted under the correct instrument_id).
         now_utc = datetime.now(timezone.utc)
         cutoff = now_utc - timedelta(days=self._MAX_CANDLE_AGE_DAYS)
-        db_stale = (
-            rows and rows[0].ts.replace(tzinfo=timezone.utc) < cutoff
-        )
+        db_stale = bool(rows) and rows[0].ts.replace(tzinfo=timezone.utc) < cutoff
 
-        # Fallback to NSE provider when DB is empty or stale
-        if (not rows or db_stale) and NSE_PROVIDER_URL:
-            try:
-                instrument = await self.repo.get(instrument_id)
-                symbol = instrument.symbol if instrument else "RELIANCE"
-                # Map timeframe to NSE interval
-                interval = "1minute" if timeframe == Timeframe.MINUTE_1 else \
-                           "5minute" if timeframe == Timeframe.MINUTE_5 else \
-                           "15minute" if timeframe == Timeframe.MINUTE_15 else \
-                           "30minute" if timeframe == Timeframe.MINUTE_30 else \
-                           "1hour" if timeframe in (Timeframe.HOUR_1, Timeframe.HOUR_4) else "1day"
-                url = (
-                    f"{NSE_PROVIDER_URL}/api/charts/equity-historical-data"
-                    f"?symbol={symbol}&start=2024-06-01&end=2026-09-01&timeInterval={interval}"
-                )
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    resp = await client.get(url)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        # NSE returns {time: ms, open, high, low, close, volume}
-                        # Convert to CandleResponse format
-                        nse_items = data if isinstance(data, list) else data.get("data", [])
-                        if not nse_items and isinstance(data, dict) and "time" in data:
-                            nse_items = [data]
-                        rows = []
-                        for item in nse_items[-limit:]:
-                            # time in ms from NSE; convert to datetime
-                            ts = datetime.fromtimestamp(int(item.get("time", 0)) / 1000)
-                            # Create a mock candle object that CandleResponse can use
-                            class MockCandle:
-                                pass
-                            c = MockCandle()
-                            c.timeframe = timeframe
-                            c.ts = ts
-                            c.open = float(item.get("open", 0))
-                            c.high = float(item.get("high", 0))
-                            c.low = float(item.get("low", 0))
-                            c.close = float(item.get("close", 0))
-                            c.volume = int(item.get("volume", 0) or 0)
-                            rows.append(c)
-                        logger.info("NSE provider returned %d candles for %s / %s", len(rows), symbol, timeframe)
-            except Exception as exc:
-                logger.warning("NSE provider fallback failed: %s", exc)
-
-        has_more = len(rows) > limit
-        rows = rows[:limit]
-
-        # DB median guard: drop rows whose price is wildly outside the median
-        # of the returned series (protects against symbol-mix contamination).
-        if rows:
-            mids = sorted([(float(r.open) + float(r.close)) / 2.0 for r in rows])
-            median = mids[len(mids)//2]
-            if median > 0:
-                clean = [r for r in rows if (float(r.open)+float(r.close))/2.0 >= median/2 and (float(r.open)+float(r.close))/2.0 <= median*2]
-                if len(clean) >= 2:
-                    rows = clean
+        if rows and not db_stale:
+            candles = list(rows[: limit + 1])
+        elif settings.NSE_PROVIDER_URL:
+            candles = await self._fetch_nse_candles(instrument, timeframe, limit)
+        else:
+            candles = list(rows[: limit + 1])
 
         items = [
             CandleResponse(
-                timeframe=c.timeframe,
+                timeframe=timeframe,
                 ts=c.ts,
                 open=round(float(c.open), 2),
                 high=round(float(c.high), 2),
@@ -201,14 +150,69 @@ class InstrumentService:
                 close=round(float(c.close), 2),
                 volume=int(c.volume or 0),
             )
-            for c in rows
+            for c in candles
         ]
+        items = _median_guard(items)
+
+        has_more = len(items) > limit
+        items = items[:limit]
         return PaginatedCandles(
             items=items,
             timeframe=timeframe,
             limit=limit,
             has_more=has_more,
         )
+
+    async def _fetch_nse_candles(
+        self, instrument: Instrument, timeframe: Timeframe, limit: int
+    ) -> list:
+        """Live fetch from the stock-nse-india sidecar.
+
+        Whatever comes back is persisted (idempotent upserts) before it is
+        served, so live NSE candles accumulate in the DB instead of being
+        re-fetched on every request.
+        """
+        symbol = instrument.symbol
+        provider = NseIndiaProvider(settings.NSE_PROVIDER_URL)
+        try:
+            raw = await provider.get_candles(symbol, timeframe.value, limit)
+        finally:
+            await provider.aclose()
+
+        candles = normalise(raw)
+        if not candles:
+            logger.warning("NSE live fetch returned no candles for %s %s", symbol, timeframe.value)
+            return []
+
+        try:
+            written = await store_candles(
+                self.db, instrument_id=instrument.id, timeframe=timeframe, candles=candles
+            )
+            await self.db.commit()
+            logger.info(
+                "NSE live fetch for %s %s: %d candles served, %d stored",
+                symbol, timeframe.value, len(candles), written,
+            )
+        except Exception as exc:  # noqa: BLE001 — serving matters more than storing
+            logger.warning("NSE candle persistence failed for %s: %s", symbol, exc)
+        return candles
+
+
+def _median_guard(items: list[CandleResponse]) -> list[CandleResponse]:
+    """Drop items whose mid price is wildly outside the returned series'
+    median (protects against symbol-mix contamination). Kept only when at
+    least two rows survive, mirroring the DB-path behaviour."""
+    if not items:
+        return items
+    mids = sorted((i.open + i.close) / 2.0 for i in items)
+    median = mids[len(mids) // 2]
+    if median <= 0:
+        return items
+    clean = [
+        i for i in items
+        if median / 2 <= (i.open + i.close) / 2.0 <= median * 2
+    ]
+    return clean if len(clean) >= 2 else items
 
 
 def parse_timeframe(value: str) -> Timeframe:

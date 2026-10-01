@@ -26,7 +26,9 @@ prompt for them (or reuse existing values) without storing them in the file.
 | `FIREBASE_PROJECT_ID` | e.g. `bofedge-f72ae` |
 | `FIREBASE_CLIENT_EMAIL` | Service-account email from Firebase console |
 | `FIREBASE_PRIVATE_KEY` | PEM key; literal `\n` sequences are normalized by the backend |
-| `MARKET_DATA_API_KEY` | Optional until Phase 8 |
+| `MARKET_DATA_PROVIDER` | `nse_india` (live candles/quotes via the sidecar), `demo`, `yahoo`, `twelve_data`, or `real` |
+| `NSE_PROVIDER_URL` | Base URL of the `bof-nse-provider` sidecar (`https://bof-nse-provider.onrender.com`); feeds live NSE candles + the stale-chart fallback |
+| `MARKET_DATA_API_KEY` | Only needed for `twelve_data` / `real` providers |
 | `CORS_ORIGINS` | Comma-separated origins; admin panel origin goes here |
 
 `DATABASE_URL` is injected by Render — do not set it manually.

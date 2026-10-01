@@ -17,6 +17,8 @@ def build_provider(reference_instruments: list[dict] | None = None) -> MarketDat
       raises ProviderNotConfiguredError otherwise.
     - ``MARKET_DATA_PROVIDER=twelve_data`` → Twelve Data; without an API key it
       degrades to the keyless Yahoo provider (never silently synthetic).
+    - ``MARKET_DATA_PROVIDER=nse_india`` → stock-nse-india sidecar
+      (NSE_PROVIDER_URL); without a URL it degrades to Yahoo as well.
     """
     from app.core.config import get_settings
 
@@ -51,6 +53,21 @@ def build_provider(reference_instruments: list[dict] | None = None) -> MarketDat
 
         logging.getLogger(__name__).warning(
             "MARKET_DATA_PROVIDER=twelve_data but MARKET_DATA_API_KEY not set — "
+            "falling back to Yahoo Finance provider"
+        )
+        from app.services.providers.yahoo_provider import YahooFinanceProvider
+
+        return YahooFinanceProvider(reference_instruments)
+    if current.MARKET_DATA_PROVIDER == "nse_india":
+        if current.NSE_PROVIDER_URL:
+            from app.services.providers.nse_provider import NseIndiaProvider
+
+            return NseIndiaProvider(
+                current.NSE_PROVIDER_URL, reference_instruments
+            )
+        # Graceful degradation — real keyless data beats silent demo data.
+        logger.warning(
+            "MARKET_DATA_PROVIDER=nse_india but NSE_PROVIDER_URL not set — "
             "falling back to Yahoo Finance provider"
         )
         from app.services.providers.yahoo_provider import YahooFinanceProvider

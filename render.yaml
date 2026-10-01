@@ -65,9 +65,9 @@ services:
       - key: DEMO_TICK_SECONDS
         value: "10"
 
-      # --- Market data provider (demo until you buy a feed) ---
+      # --- Market data provider (Yahoo main; NSE sidecar = chart fallback) ---
       - key: MARKET_DATA_PROVIDER
-        value: "demo"
+        value: "yahoo"
       - key: MARKET_DATA_API_KEY
         sync: false
       - key: MARKET_BASE_URL

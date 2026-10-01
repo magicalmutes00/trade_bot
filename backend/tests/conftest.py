@@ -59,6 +59,7 @@ def _force_demo_provider(monkeypatch):
     from app.core.config import get_settings
 
     monkeypatch.setenv("MARKET_DATA_PROVIDER", "demo")
+    monkeypatch.setenv("NSE_PROVIDER_URL", "")   # keep the NSE live-fallback hermetic
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

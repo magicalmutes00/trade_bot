@@ -61,10 +61,13 @@ class Settings(BaseSettings):
     FIREBASE_PRIVATE_KEY: str | None = None
 
     # --- Market data (Phase 3/8) ---
-    MARKET_DATA_PROVIDER: Literal["demo", "real", "yahoo", "twelve_data"] = "twelve_data"
+    MARKET_DATA_PROVIDER: Literal["demo", "real", "yahoo", "twelve_data", "nse_india"] = "twelve_data"
     MARKET_DATA_API_KEY: str | None = None
     MARKET_BASE_URL: str = "https://api.example-ohlcv.com/v1"
     MARKET_MAX_RETRIES: int = 3
+
+    # --- NSE India sidecar (stock-nse-india) — candles + quotes fallback ---
+    NSE_PROVIDER_URL: str = ""
 
     # --- Market scheduler (intraday quote + pipeline refresh) ---
     MARKET_SCHEDULER_ENABLED: bool = True
