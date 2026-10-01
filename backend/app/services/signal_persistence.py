@@ -8,7 +8,10 @@ Idempotency keys:
     candles  → (instrument_id, timeframe, ts)
     signals  → (instrument_id, timeframe, signal_type, detected_at)  # trigger bar
 The signal_type is part of the key so BOF and PATTERN families can share a
-trigger bar without colliding.
+trigger bar without colliding (they scan disjoint timeframes anyway). Within a
+family the DB keeps ONE row per trigger bar (uq_signals_instrument_tf_detected
+has no signal_type column), so same-bar duplicates — e.g. two chart patterns
+confirmed on the same D1 candle — collapse first-wins.
 Status convergence rule: CONFIRMED never regresses to DETECTING.
 Timestamp comparison keys are normalised because SQLite round-trips naive
 datetimes while PostgreSQL keeps timestamptz.
@@ -168,6 +171,10 @@ async def persist_signals(db: AsyncSession, signals: list[EngineSignal]) -> dict
         )
     ).scalars().all()
     by_key = {(r.signal_type, _norm_ts(r.detected_at)): r for r in existing_rows}
+    # Keys inserted earlier in THIS batch — the DB constraint allows only one
+    # row per (instrument, timeframe, detected_at), so later same-bar signals
+    # are dropped instead of crashing the flush.
+    claimed: set[tuple[str, datetime]] = set()
 
     pending_events: list[tuple[uuid.UUID | None, list[str], dict]] = []
     new_rows: list[Signal] = []
@@ -179,9 +186,13 @@ async def persist_signals(db: AsyncSession, signals: list[EngineSignal]) -> dict
         elif s.status.startswith("INVALIDATED"):
             wanted.append("INVALIDATED")
 
-        existing = by_key.get((s.signal_type, _norm_ts(s.detected_at)))
+        key = (s.signal_type, _norm_ts(s.detected_at))
+        existing = by_key.get(key)
 
         if existing is None:
+            if key in claimed:
+                continue
+            claimed.add(key)
             row = Signal(
                 instrument_id=s.instrument_id,
                 timeframe=tf,

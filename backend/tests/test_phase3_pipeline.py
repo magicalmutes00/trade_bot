@@ -155,3 +155,53 @@ async def test_candles_endpoint_returns_stored_history(client, db):
     detail = (await client.get(f"/api/v1/instruments/{inst.id}")).json()["data"]
     assert detail["quote"] is not None
     assert float(detail["quote"]["last_price"]) > 0
+
+
+async def test_same_bar_duplicate_patterns_collapse_not_crash(client, db):
+    """Regression: two chart patterns firing on the SAME trigger bar used to
+    violate uq_signals_instrument_tf_detected and crash a fresh-DB backfill
+    (SYMMETRICAL_TRIANGLE + BEARISH_PENNANT on one D1 candle). First wins;
+    different bars still get their own rows."""
+    inst = _mk_instrument(db, "DUPBAR")
+    await db.flush()   # assign the uuid default — _mk_instrument's commit is sync-op
+
+    from app.engine.models import EngineSignal
+    from app.services.signal_persistence import persist_signals
+
+    def pat(name: str, price: float, ts: datetime) -> EngineSignal:
+        return EngineSignal(
+            instrument_id=inst.id, timeframe="1D", direction="BEARISH",
+            bof_level=price, breakout_price=price, failure_price=None,
+            entry_price=price, stop_reference=None, confidence=0.5,
+            strength="MODERATE", status="DETECTING", detected_at=ts,
+            confirmed_at=None, signal_type="PATTERN",
+            metadata={"pattern": name},
+        )
+
+    bar_a = datetime(2026, 9, 23, 3, 45, tzinfo=timezone.utc)
+    bar_b = datetime(2026, 9, 24, 3, 45, tzinfo=timezone.utc)
+
+    stats = await persist_signals(db, [
+        pat("SYMMETRICAL_TRIANGLE", 416.9, bar_a),
+        pat("BEARISH_PENNANT", 409.8, bar_a),   # same bar → dropped
+        pat("BULL_FLAG", 421.0, bar_b),          # different bar → kept
+    ])
+    await db.commit()
+    assert stats["signals_created"] == 2
+
+    # replaying the identical batch stays idempotent (no new rows, no crash)
+    stats2 = await persist_signals(db, [
+        pat("SYMMETRICAL_TRIANGLE", 416.9, bar_a),
+        pat("BEARISH_PENNANT", 409.8, bar_a),
+        pat("BULL_FLAG", 421.0, bar_b),
+    ])
+    await db.commit()
+    assert stats2["signals_created"] == 0
+
+    rows = (await db.execute(
+        select(Signal.detected_at).order_by(Signal.detected_at)
+    )).all()
+    # SQLite round-trips naive timestamps; normalise before comparing
+    got = [r[0].replace(tzinfo=timezone.utc) if r[0].tzinfo is None else r[0]
+           for r in rows]
+    assert got == [bar_a, bar_b]
